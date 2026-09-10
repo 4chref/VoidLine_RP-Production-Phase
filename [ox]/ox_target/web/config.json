@@ -1,0 +1,15 @@
+{
+  "colors": {
+    "accent": "#FFD700",
+    "background": "rgba(0, 0, 0, 0.88)",
+    "border": "rgba(255, 215, 0, 0.6)",
+    "text": "#FFDF4D",
+    "whiteTransparent": "rgba(255, 215, 0, 0.45)",
+    "iconDefault": "#FFD700",
+    "hoverBackground": "rgba(0, 0, 0, 0.96)",
+    "shadowBlack": "rgba(0, 0, 0, 0.7)",
+    "eyeRadialStart": "rgba(255, 215, 0, 0)",
+    "eyeRadialActive": "rgba(255, 215, 0, 0.4)",
+    "svgFill": "#FFD700"
+  }
+}

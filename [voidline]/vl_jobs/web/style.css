@@ -1,0 +1,479 @@
+/* ==========================================================================
+   vl_jobs -- the foreman's board
+
+   A close port of af-camping's campfire screen, not an interpretation of it.
+   Token values, geometry and class names all come from
+   af-camping/web/build/assets/index-xhEJ_ypj.css; where a number appears below
+   it is that file's number, so the two can be diffed later.
+
+   The mapping:
+     recipe list card  ->  a job
+     recipe image      ->  the tool that job hands you (ox_inventory art)
+     detail hero       ->  job title + description + that same image
+     ingredient slots  ->  the four facts about a shift
+     cook CTA          ->  take the shift
+
+   This REPLACES an ox_lib context menu rather than restyling one. ox_lib's menu
+   CSS is shared by every resource on this server, so theming it for one board
+   would have dragged every other menu along with it.
+   ========================================================================== */
+
+:root {
+    /* af-camping's real accent, despite the name. #7c9f4d is only its
+       --success, which is why it appears here just on the on-shift dot. */
+    --accent-muted: #c9b99f;
+    --success: #7c9f4d;
+    --danger: #e07070;
+
+    --text: #f4f6f8;
+    --text-secondary: rgba(255, 255, 255, 0.62);
+    --text-muted: rgba(255, 255, 255, 0.42);
+
+    --card-border: #525354;
+    --recipe-border: #3b3b3b;
+    --recipe-border-hover: #929292;
+    --recipe-border-active: #c9b99f;
+    --detail-panel-border: #3b3b3b;
+
+    --panel-surface: rgba(26, 27, 27, 0.9);
+    --slot-bg: #1a1b1b;
+    --cta-bg: #252425;
+
+    --font: 'Inter', system-ui, sans-serif;
+    --font-title: 'Agency FB', 'Arial Narrow', sans-serif;
+
+    --title-tracking-lg: 0.12em;
+    --title-tracking-sm: 0.18em;
+
+    --radius: 10px;
+    --radius-sm: 8px;
+
+    --camp-brand-title-size: 3.45rem;
+    --camp-brand-subtitle-gap: 0.2rem;
+
+    --panel-gap: 7.5rem;
+    --panel-sidebar-w: 400px;
+    --panel-detail-w: 500px;
+    --panel-detail-offset-y: 3.5rem;
+
+    --recipe-card-h: 74px;
+    --recipe-list-gap: 6px;
+    --recipe-list-max-visible: 7;
+    --recipe-icon-size: 50px;
+    --recipe-rail-extend: 0.65rem;
+    --recipe-nav-line-extend: 3.2rem;
+    --recipe-rail-total-extend: calc(var(--recipe-rail-extend) + var(--recipe-nav-line-extend));
+
+    --detail-hero-img-size: 120px;
+    --detail-hero-img-offset-y: 1.4rem;
+
+    --camp-offset-y: 4vh;
+    --camp-offset-x: 2rem;
+    --camp-sidebar-shift-x: -3.5rem;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+[hidden] { display: none !important; }
+
+/* ==========================================================================
+   SHELL
+   ========================================================================== */
+
+.camp-root {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding-bottom: var(--camp-offset-y);
+    padding-right: var(--camp-offset-x);
+    font-family: var(--font);
+    color: var(--text);
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.camp-root.is-open { opacity: 1; }
+
+/* af-camping paints this on .camp-root::before. Kept as a real node only so it
+   can be transitioned independently of the panel. Stops are verbatim. */
+.camp-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(to left,
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.84) 20%,
+        rgba(0, 0, 0, 0.58) 45%,
+        rgba(0, 0, 0, 0.22) 68%,
+        rgba(0, 0, 0, 0) 100%);
+}
+
+.camp-stage {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--panel-gap);
+}
+
+/* ==========================================================================
+   SIDEBAR
+   ========================================================================== */
+
+.camp-sidebar {
+    width: var(--panel-sidebar-w);
+    flex: 0 0 var(--panel-sidebar-w);
+    margin-left: var(--camp-sidebar-shift-x);
+    padding: 1.65rem 0 1.25rem 0.55rem;
+    max-height: min(92vh, 900px);
+    min-height: 0;
+    align-self: flex-start;
+    overflow: visible;
+}
+
+.camp-brand { position: relative; margin-bottom: 1.5rem; flex-shrink: 0; }
+
+.camp-brand__title {
+    font-family: var(--font-title);
+    font-size: var(--camp-brand-title-size);
+    font-weight: 700;
+    letter-spacing: var(--title-tracking-lg);
+    text-transform: uppercase;
+    line-height: 0.95;
+}
+
+.camp-brand__subtitle {
+    margin: var(--camp-brand-subtitle-gap) 0 0;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+/* The rule deliberately overruns the card rail to the right -- that overhang is
+   the campfire screen's most recognisable structural tic. */
+.recipe-nav-header {
+    position: relative;
+    flex-shrink: 0;
+    margin-bottom: 1.1rem;
+    width: 100%;
+    padding-bottom: 0.55rem;
+}
+
+.recipe-nav-header::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: calc(100% + var(--recipe-rail-total-extend));
+    height: 1px;
+    background: rgba(255, 255, 255, 0.14);
+    pointer-events: none;
+}
+
+.recipe-nav__title {
+    margin: 0;
+    font-family: var(--font-title);
+    font-size: 1.16rem;
+    font-weight: 400;
+    letter-spacing: var(--title-tracking-sm);
+    text-transform: uppercase;
+    color: #fff;
+    white-space: nowrap;
+}
+
+.recipe-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--recipe-list-gap);
+    width: calc(100% + var(--recipe-rail-total-extend));
+    max-height: calc(var(--recipe-card-h) * var(--recipe-list-max-visible)
+                     + var(--recipe-list-gap) * (var(--recipe-list-max-visible) - 1));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    flex-shrink: 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.recipe-list::-webkit-scrollbar { display: none; }
+
+/* --- a card ------------------------------------------------------------ */
+
+.recipe-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    width: 100%;
+    height: var(--recipe-card-h);
+    min-height: var(--recipe-card-h);
+    max-height: var(--recipe-card-h);
+    flex-shrink: 0;
+    padding: 0 5.5rem 0 0.55rem;
+    border: 1px solid var(--recipe-border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-surface);
+    text-align: left;
+    transition: border-color 0.15s ease;
+}
+
+.recipe-card:hover:not(:disabled):not(.is-active) { border-color: var(--recipe-border-hover); }
+.recipe-card.is-active { border-color: var(--recipe-border-active); }
+.recipe-card.is-locked { opacity: 0.45; cursor: not-allowed; }
+
+.recipe-card__icon {
+    width: var(--recipe-icon-size);
+    height: var(--recipe-icon-size);
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    overflow: visible;
+}
+
+.recipe-card__img { width: 50px; height: 50px; object-fit: contain; }
+
+.recipe-card__body {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.32rem;
+}
+
+.recipe-card__name {
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recipe-card__desc {
+    font-size: 0.76rem;
+    color: rgba(255, 255, 255, 0.42);
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* af-camping's `__time-tag`, carrying the payout instead of a cook time. */
+.recipe-card__tag {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.22rem 0.42rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 0.7rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.recipe-card.is-locked .recipe-card__tag { opacity: 0.55; }
+
+.recipe-card.is-running .recipe-card__tag {
+    border-color: rgba(124, 159, 77, 0.45);
+    background: rgba(124, 159, 77, 0.12);
+    color: var(--success);
+}
+
+/* ==========================================================================
+   DETAIL PANEL
+   ========================================================================== */
+
+.camp-detail {
+    width: var(--panel-detail-w);
+    flex: 0 0 var(--panel-detail-w);
+    padding-top: var(--panel-detail-offset-y);
+}
+
+.detail-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 1.85rem 1.75rem 1.75rem;
+    border: 1px solid var(--detail-panel-border);
+    border-radius: 12px;
+    background: var(--panel-surface);
+}
+
+/* The right padding reserves the hero image's column so the copy never runs
+   under it -- af-camping does exactly this rather than using a flex row. */
+.detail-hero {
+    position: relative;
+    margin: 0;
+    padding-right: calc(var(--detail-hero-img-size) + 1.25rem);
+    min-height: calc(var(--detail-hero-img-size) - var(--detail-hero-img-offset-y));
+}
+
+.detail-hero__title {
+    margin: 0;
+    font-family: var(--font-title);
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: var(--title-tracking-lg);
+    text-transform: uppercase;
+    line-height: 1.05;
+}
+
+.detail-hero__desc {
+    margin-top: 0.55rem;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.detail-hero__img {
+    position: absolute;
+    top: calc(0px - var(--detail-hero-img-offset-y));
+    right: 0;
+    width: var(--detail-hero-img-size);
+    height: var(--detail-hero-img-size);
+    object-fit: contain;
+}
+
+.detail-panel-spacer {
+    height: 1px;
+    margin: 1.4rem 0;
+    background: rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+
+.section-title {
+    margin: 0 0 0.75rem;
+    font-family: var(--font-title);
+    font-size: 0.82rem;
+    font-weight: 400;
+    letter-spacing: var(--title-tracking-sm);
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.section-title--ingredients { font-size: 0.82rem; margin-bottom: 0.9rem; }
+
+.ingredient-slots {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.65rem;
+}
+
+.ingredient-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 100px;
+    padding: 0.6rem 0.4rem;
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm);
+    background: var(--slot-bg);
+    text-align: center;
+}
+
+.ingredient-slot__count {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    word-break: normal;
+    overflow-wrap: normal;
+    hyphens: none;
+}
+
+.ingredient-slot__name {
+    font-size: 0.62rem;
+    letter-spacing: var(--title-tracking-sm);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    line-height: 1.2;
+}
+
+/* --- the call to action ------------------------------------------------ */
+
+.cook-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 72px;
+    margin-top: 2rem;
+    padding: 1rem 1.35rem;
+    border: 1px solid var(--accent-muted);
+    border-radius: 10px;
+    background: var(--cta-bg);
+    color: inherit;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cook-cta:hover:not(:disabled) { background: #2e2c2e; }
+.cook-cta:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--card-border); }
+
+.cook-cta__content { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; }
+
+.cook-cta__label {
+    font-family: var(--font-title);
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    line-height: 1;
+}
+
+.cook-cta__hint {
+    font-family: var(--font);
+    font-size: 0.78rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.quit-btn {
+    margin-top: 0.75rem;
+    padding: 0.6rem;
+    width: 100%;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 0.74rem;
+    letter-spacing: var(--title-tracking-sm);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.quit-btn:hover { color: var(--danger); border-color: rgba(224, 112, 112, 0.35); }
+
+:focus-visible { outline: 1px solid var(--accent-muted); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .camp-root, .recipe-card, .cook-cta, .quit-btn { transition: none; }
+}

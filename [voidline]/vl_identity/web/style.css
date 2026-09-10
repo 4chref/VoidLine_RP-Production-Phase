@@ -1,0 +1,733 @@
+/* ==========================================================================
+   vl_identity -- character intake, identity reveal, arrival, ID card
+
+   VoidLine: TWO af treatments on purpose, one per screen.
+
+     INTAKE   af-camping's campfire panel -- right-anchored over a left-fading
+              scrim, warm bone accent. See the INTAKE section below, which
+              carries its own --camp-* tokens.
+     ARRIVAL  af-expeditions' zone-discovery splash, kept as-is. That is the
+              language the player meets again every time they walk into an
+              expedition, so it stays.
+     ID CARD  af-expeditions too, on the same tokens as the arrival -- the two
+              are the surfaces the player meets at the end of creation, so they
+              read as one thing. Scaled down to card size, and silent.
+
+   The two sets never overlap: nothing in the intake reads a --gold token, and
+   nothing in the arrival or the card reads a --camp-* one. There is no third
+   set -- an af-recycler pass on the card was replaced by this one.
+
+   Values lifted from af-expeditions/web/build/assets/index-D097x3pI.css:
+     #8ba870   accent (olive)
+     #0c0c0c   ground
+     white at 0.92 / 0.80 / 0.55 / 0.42 / 0.12  the text and hairline scale
+     Bebas Neue + Segoe UI/system  display and body
+
+   The token names below still say `gold`. Deliberately left alone: they are
+   referenced in ~40 places and renaming them is churn with no behavioural
+   change. The VALUES are what carry the theme.
+   ========================================================================== */
+
+:root {
+    --gold:      #8ba870;   /* accent -- af-expeditions olive */
+    --gold-hi:   #c9dcb4;   /* highlight / hover              */
+    --gold-deep: #5a6e48;   /* hairlines, inactive strokes    */
+    --gold-dim:  rgba(139, 168, 112, 0.42);
+
+    --ink:       #0c0c0c;   /* true background                */
+    --panel:     #111111;   /* panel body                     */
+    --bone:      #ffffff;   /* readable body text             */
+    --muted:     rgba(255, 255, 255, 0.46);
+
+    /* Bebas Neue is af-expeditions' display face. Loaded from Google Fonts the
+       same way af-basebuilding loads Teko in NUI -- a pattern already proven to
+       work on this server. The fallbacks are Windows-resident, so a failed
+       fetch degrades to the condensed stack this file used before rather than
+       to a default sans. */
+    --display: 'Bebas Neue', 'Bahnschrift Condensed', 'Bahnschrift',
+               'Arial Narrow', 'Franklin Gothic Medium', Impact, sans-serif;
+    --mono:    'Consolas', 'Cascadia Mono', 'Lucida Console', 'Courier New', monospace;
+    --body:    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background: transparent;   /* the game shows through unless a screen is up */
+    overflow: hidden;
+    font-family: var(--mono);
+    color: var(--bone);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+}
+
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+[hidden] { display: none !important; }
+
+/* ==========================================================================
+   INTAKE -- af-camping's campfire language
+
+   The intake is the only screen re-skinned here. The ARRIVAL splash further
+   down deliberately stays on af-expeditions' discovery treatment, because that
+   is the language the player meets again every time they walk into an
+   expedition -- so this file carries TWO token sets on purpose, and the
+   --camp-* names below never touch the arrival or the ID card.
+
+   Values from af-camping/web/build/assets/index-xhEJ_ypj.css:
+     #c9b99f  its --accent-muted, the real accent (#7c9f4d is only --success)
+     rgba(26,27,27,.9) panel, #1a1b1b slot, #252425 CTA
+     #525354 border / #666869 hover / #c9b99f active, #3b3b3b panel border
+     #f4f6f8 text, white at .62 and .42
+     "Inter" body, "Agency FB"/"Arial Narrow" title, .12em / .18em tracking
+     10px / 8px radii, and the right-anchored layout over a left-fading scrim
+   ========================================================================== */
+
+:root {
+    --camp-accent: #c9b99f;
+    --camp-text: #f4f6f8;
+    --camp-text-2: rgba(255, 255, 255, 0.62);
+    --camp-text-3: rgba(255, 255, 255, 0.42);
+
+    --camp-panel: rgba(26, 27, 27, 0.9);
+    --camp-slot: #1a1b1b;
+    --camp-cta: #252425;
+
+    --camp-border: #525354;
+    --camp-border-hover: #666869;
+    --camp-border-active: #c9b99f;
+    --camp-panel-border: #3b3b3b;
+
+    --camp-font: 'Inter', system-ui, 'Segoe UI', sans-serif;
+    --camp-title: 'Agency FB', 'Arial Narrow', 'Bahnschrift Condensed', sans-serif;
+
+    --camp-track-lg: 0.12em;
+    --camp-track-sm: 0.18em;
+}
+
+/* af-camping anchors its whole screen to the right over a scrim that fades out
+   to the left, rather than centring a dialog. That is the single most
+   recognisable thing about it, so the intake moves too. */
+.screen {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 4vh 2rem 4vh 0;
+    font-family: var(--camp-font);
+    color: var(--camp-text);
+    animation: screenin 0.5s ease both;
+}
+
+@keyframes screenin { from { opacity: 0; } to { opacity: 1; } }
+
+.screen.is-out { animation: screenout 0.4s ease both; }
+@keyframes screenout { from { opacity: 1; } to { opacity: 0; } }
+
+/* Gradient stops are af-camping's, verbatim. No blur: the campfire screen
+   leaves the world legible behind it, and a blur here would have read as a
+   different resource. */
+.backdrop {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to left,
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.84) 20%,
+        rgba(0, 0, 0, 0.58) 45%,
+        rgba(0, 0, 0, 0.22) 68%,
+        rgba(0, 0, 0, 0) 100%);
+}
+
+/* af-camping has no film grain and no corner brackets. Both were part of the
+   old gold-on-black treatment. Neutralised rather than deleted from the markup,
+   so index.html and app.js need no edits and the motifs can be restored by
+   dropping these two rules. */
+.grain { display: none; }
+.bracket { display: none; }
+
+/* ==========================================================================
+   PANEL
+   ========================================================================== */
+
+.panel {
+    position: relative;
+    z-index: 1;
+    width: min(34vw, 520px);
+    padding: 1.85rem 1.75rem 1.75rem;
+    border: 1px solid var(--camp-panel-border);
+    border-radius: 12px;
+    background: var(--camp-panel);
+}
+
+/* af-camping's `.section-title` */
+.eyebrow {
+    font-family: var(--camp-title);
+    font-size: 0.82rem;
+    font-weight: 400;
+    letter-spacing: var(--camp-track-sm);
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1;
+}
+
+/* `.camp-brand__title`, scaled down -- 3.45rem is sized for a bare screen
+   edge, and inside a 520px panel it would wrap. */
+.heading {
+    margin-top: 0.75rem;
+    font-family: var(--camp-title);
+    font-size: 2.4rem;
+    font-weight: 700;
+    letter-spacing: var(--camp-track-lg);
+    text-transform: uppercase;
+    line-height: 0.95;
+    color: var(--camp-text);
+}
+
+.subtitle {
+    margin-top: 0.4rem;
+    font-size: 0.95rem;
+    font-weight: 400;
+    line-height: 1.45;
+    color: var(--camp-text-2);
+}
+
+/* `.detail-panel-spacer` */
+.rule {
+    height: 1px;
+    margin: 1.4rem 0;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* ==========================================================================
+   FIELDS
+   ========================================================================== */
+
+.field { margin-bottom: 1.5rem; }
+
+.field-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.9rem;
+    font-family: var(--camp-title);
+    font-size: 0.82rem;
+    font-weight: 400;
+    letter-spacing: var(--camp-track-sm);
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* The 01 / 02 index is kept because the two fields really are a sequence --
+   sex is answered before height, and the submit stays locked until it is. */
+.field-label .idx {
+    font-family: var(--camp-font);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--camp-accent);
+}
+
+.readout {
+    margin-left: auto;
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+}
+
+.readout b {
+    font-family: var(--camp-title);
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    color: var(--camp-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.readout i {
+    font-style: normal;
+    font-size: 0.66rem;
+    letter-spacing: var(--camp-track-sm);
+    text-transform: uppercase;
+    color: var(--camp-text-3);
+}
+
+/* --- sex, on the recipe-card treatment --------------------------------- */
+
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
+
+.choice {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 58px;
+    padding: 0 1rem;
+    border: 1px solid var(--camp-border);
+    border-radius: 8px;
+    background: var(--camp-slot);
+    text-align: left;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--camp-text-2);
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.choice:hover:not(.is-active) { border-color: var(--camp-border-hover); }
+
+.choice-mark {
+    width: 9px;
+    height: 9px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.choice.is-active {
+    border-color: var(--camp-border-active);
+    color: #fff;
+}
+
+.choice.is-active .choice-mark {
+    background: var(--camp-accent);
+    box-shadow: 0 0 0 3px rgba(201, 185, 159, 0.16), 0 0 10px rgba(201, 185, 159, 0.5);
+}
+
+/* --- height ------------------------------------------------------------ */
+
+.slider-wrap { position: relative; height: 26px; display: flex; align-items: center; }
+
+/* The real input sits on top at zero opacity so it keeps every native
+   behaviour -- drag, arrow keys, page up/down -- while the visible track below
+   is what actually gets styled. */
+.slider-wrap input[type="range"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    z-index: 2;
+}
+
+.slider-track {
+    position: relative;
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--camp-slot);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+.slider-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 50%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(201, 185, 159, 0.5) 0%, var(--camp-accent) 100%);
+    box-shadow: 0 0 12px rgba(201, 185, 159, 0.35);
+}
+
+.slider-wrap input[type="range"]:focus-visible ~ .slider-track {
+    border-color: var(--camp-accent);
+}
+
+.slider-ends {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.45rem;
+    font-size: 0.66rem;
+    letter-spacing: var(--camp-track-sm);
+    color: var(--camp-text-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   SUBMIT -- af-camping's `.cook-cta`
+   ========================================================================== */
+
+.submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 72px;
+    margin-top: 2rem;
+    padding: 1rem 1.35rem;
+    border: 1px solid var(--camp-accent);
+    border-radius: 10px;
+    background: var(--camp-cta);
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.submit span {
+    font-family: var(--camp-title);
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    line-height: 1;
+}
+
+.submit:hover:not(:disabled) { background: #2e2c2e; }
+
+.submit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: var(--camp-border);
+}
+
+.hint {
+    margin-top: 0.75rem;
+    text-align: center;
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+    color: var(--camp-text-3);
+    transition: opacity 0.2s ease;
+}
+
+.hint.is-hidden { opacity: 0; }
+
+:focus-visible { outline: 1px solid var(--camp-accent); outline-offset: 2px; }
+
+/* ==========================================================================
+   (The IDENTITY REVEAL block lived here.)
+
+   Removed with the screen itself: the blocking "your number is 042" card that
+   sat between intake and spawn is gone, and the number is now the headline of
+   the arrival splash instead. Rules deleted: .reveal .welcome .assign
+   .number-wrap .number-flank .number .footnote .submit.ghost .backdrop.solid
+   .rule.short -- none had an element left in index.html.
+   ========================================================================== */
+
+/* ==========================================================================
+   ID CARD -- af-expeditions' language
+
+   Moved off af-recycler and onto the same treatment as the ARRIVAL splash
+   below, so the two surfaces the player meets at the end of creation read as
+   one thing. That also drops a token set instead of adding one: this section
+   now uses the file's original --gold* / --display tokens, which ARE the
+   af-expeditions values (--gold is #8ba870, --display is Bebas Neue).
+
+   From af-expeditions/web/build/assets/index-D097x3pI.css:
+     #8ba870   accent
+     #0c0c0c   ground
+     white at .92 / .55 / .42        the text scale
+     Bebas Neue                      every number and label
+     the diamond-centred rule and the very wide eyebrow tracking, which are
+     that screen's two signature devices, reproduced here at card scale
+
+   SCALED DOWN on request: 32vh -> 23vh wide, 14vh -> 9.5vh photo, and the type
+   with it. Everything stays in vh so the card holds its proportions across
+   resolutions rather than growing on tall screens.
+
+   NO SOUND. The arrival splash plays the discovery sting; the card is a
+   passive overlay that can appear at any time, so it stays silent -- a chime
+   every time an ID card surfaced would wear out fast.
+
+   Passive overlay -- pointer-events stay off, it never takes focus.
+   ========================================================================== */
+
+#card {
+    position: absolute;
+    right: 2.6vh;
+    bottom: 2.6vh;
+    z-index: 5;
+    width: 23vh;
+    padding: 1.5vh 1.4vh 1.3vh;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(12, 12, 12, 0.92);
+    font-family: var(--body);
+    color: var(--bone);
+    text-align: center;
+    opacity: 0;
+    transform: translateY(1.5vh);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    pointer-events: none;
+}
+
+#card.visible { opacity: 1; transform: translateY(0); }
+
+/* The arrival splash's rule -- a hairline fading out from a centred accent
+   diamond -- reproduced with pseudo-elements so the markup needs no extra
+   nodes. This is the device that ties the card to that screen. */
+#card::before {
+    content: '';
+    position: absolute;
+    left: 1.4vh;
+    right: 1.4vh;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(to right,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.5) 50%,
+        rgba(255, 255, 255, 0) 100%);
+}
+
+#card::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 4px;
+    height: 4px;
+    transform: translate(-50%, -50%) rotate(45deg);
+    background: var(--gold);
+    box-shadow: 0 0 8px rgba(139, 168, 112, 0.7);
+}
+
+.card-head {
+    margin-bottom: 1.2vh;
+    font-size: 1.05vh;
+    font-weight: 500;
+    /* af-expeditions' eyebrow tracking. The indent compensates for the
+       trailing letter-space so short text stays optically centred. */
+    letter-spacing: 0.4em;
+    text-indent: 0.4em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1;
+}
+
+.card-photo {
+    width: 9.5vh;
+    height: 9.5vh;
+    margin: 0 auto 1.2vh;
+    border: 1px solid rgba(139, 168, 112, 0.28);
+    background: #0c0c0c center/cover no-repeat;
+}
+
+.card-photo.empty::after {
+    content: "NO PHOTO";
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 0.95vh;
+    letter-spacing: 0.22em;
+    color: rgba(139, 168, 112, 0.35);
+}
+
+.card-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0.55vh 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 1.05vh;
+}
+
+.card-row .k {
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.42);
+}
+
+.card-row .v {
+    font-family: var(--display);
+    font-size: 1.9vh;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    color: var(--bone);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Short viewports -- keep the panel on screen at 720p
+   ========================================================================== */
+
+@media (max-height: 760px) {
+    .panel    { width: min(84vw, 560px); padding: 26px 34px 22px; }
+    .field    { margin-bottom: 18px; }
+    .rule     { margin: 18px 0; }
+    .subtitle { margin-top: 0.7em; }
+}
+
+/* ==========================================================================
+   ARRIVAL
+   ==========================================================================
+   Geometry mirrors af-expeditions' `.discovery-*` rules so this reads as the
+   same event language: a gradient pulled in from the right edge, the copy
+   stacked against it, Bebas Neue at display size over a wide-tracked eyebrow.
+
+   Sizes are in vw rather than the source's fixed px. af-expeditions renders
+   into its own NUI at a known scale; this shares a page with the intake panel,
+   which is already vw-based, and a 90px title would swamp a 1080p screen while
+   disappearing on a 1440p one.
+
+   pointer-events: none throughout -- this plays over live gameplay with no NUI
+   focus, so it must never eat a click.
+   ========================================================================== */
+
+.arrival {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    font-family: var(--body);
+
+    /* Fade length, used by BOTH the overlay and the panel below.
+       app.js overwrites this inline from VLConfig.Arrival, and uses the same
+       number to schedule the hide -- so the transition and the timer cannot
+       drift apart the way two hardcoded values would. This value is only the
+       fallback if the message ever arrives without one. */
+    --arr-fade: 900ms;
+}
+
+.arrival-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to left,
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.72) 22%,
+        rgba(0, 0, 0, 0.38) 42%,
+        rgba(0, 0, 0, 0.08) 62%,
+        rgba(0, 0, 0, 0) 78%);
+    opacity: 0;
+    transition: opacity var(--arr-fade) ease;
+}
+
+.arrival-panel {
+    position: absolute;
+    top: 50%;
+    right: 7.5%;
+    width: min(30vw, 460px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    color: var(--bone);
+    opacity: 0;
+    /* Slides in from the right, toward its resting place -- the same direction
+       the gradient comes from, so the two read as one movement. */
+    transform: translateY(-50%) translateX(24px);
+    transition: opacity var(--arr-fade) ease, transform var(--arr-fade) ease;
+}
+
+.arrival.is-in .arrival-overlay { opacity: 1; }
+.arrival.is-in .arrival-panel   { opacity: 1; transform: translateY(-50%) translateX(0); }
+
+/* --- rules ------------------------------------------------------------- */
+
+.arrival-rule {
+    display: flex;
+    align-items: center;
+    gap: 0.6vw;
+    width: 100%;
+}
+
+.arrival-rule.top    { margin-bottom: 0.2vw; }
+.arrival-rule.bottom { margin-top: 1.6vw; }
+
+.rule-line {
+    flex: 1;
+    height: 1px;
+}
+
+.rule-line.fade-left {
+    background: linear-gradient(to right, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 100%);
+}
+
+.rule-line.fade-right {
+    background: linear-gradient(to left, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 100%);
+}
+
+.rule-diamond {
+    width: 5px;
+    height: 5px;
+    flex: 0 0 auto;
+    transform: rotate(45deg);
+    background: var(--gold);
+    box-shadow: 0 0 10px rgba(139, 168, 112, 0.7);
+}
+
+/* --- copy -------------------------------------------------------------- */
+
+.arrival-eyebrow {
+    margin: 1.8vw 0 0.9vw;
+    font-size: 0.72vw;
+    font-weight: 500;
+    /* The very wide tracking is the signature of this treatment -- it is what
+       makes a three-word label read as a chapter heading. Padding compensates
+       for the trailing letter-space so the text stays optically centred. */
+    letter-spacing: 0.44em;
+    padding-left: 0.44em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1;
+}
+
+.arrival-title {
+    margin: 0 0 1.4vw;
+    font-family: var(--display);
+    font-size: 4.6vw;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    line-height: 0.95;
+    text-transform: uppercase;
+    color: var(--bone);
+    white-space: nowrap;
+    text-shadow: 0 2px 40px rgba(0, 0, 0, 0.9);
+}
+
+.arrival-desc {
+    margin: 0;
+    max-width: 24vw;
+    font-size: 0.95vw;
+    line-height: 1.45;
+    letter-spacing: 0.01em;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+/* --- the stagger ------------------------------------------------------- */
+
+.arrival-lines {
+    list-style: none;
+    margin: 1.4vw 0 0;
+    padding: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55vw;
+}
+
+.arrival-lines li {
+    font-family: var(--mono);
+    font-size: 0.78vw;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.42);
+    opacity: 0;
+    transform: translateX(10px);
+    animation: arr-line-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Each line carries its own delay, set inline by app.js from its index --
+   a CSS-only nth-child ladder would cap out at whatever depth was written
+   here and silently stop animating any line past it. */
+@keyframes arr-line-in {
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Accent the last line: it is the one that hands control back to the player. */
+.arrival-lines li:last-child {
+    color: var(--gold);
+    text-shadow: 0 0 18px rgba(139, 168, 112, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .arrival-overlay,
+    .arrival-panel { transition: none; }
+    .arrival-lines li { animation: none; opacity: 1; transform: none; }
+}

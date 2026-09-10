@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outpost</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- ================= MARKETPLACE (from vl_market) ================= -->
+
+    <div id="marketplace" class="marketplace-container hidden">
+        <div class="marketplace-header">
+            <span class="marketplace-header-spacer"></span>
+            <div class="marketplace-title-wrap">
+                <h1 class="marketplace-title">Trader</h1>
+                <span class="marketplace-subtitle">Survivor Market Exchange</span>
+            </div>
+            <button class="close-btn" id="closeBtn">×</button>
+        </div>
+
+        <div class="marketplace-tabs">
+            <button class="tab-btn active" data-tab="listings">Listings</button>
+            <button class="tab-btn" data-tab="buy-orders">Buy Orders</button>
+            <button class="tab-btn" data-tab="pickups">Pickups</button>
+            <button class="tab-btn" data-tab="sell">Sell Item</button>
+            <button class="tab-btn" data-tab="create-order">Create Order</button>
+            <button class="tab-btn" data-tab="history">History</button>
+        </div>
+
+        <div class="marketplace-content">
+            <!-- Listings Tab -->
+            <div class="tab-content active" id="listings-tab">
+                <div class="search-bar">
+                    <input type="text" id="listingsSearch" placeholder="Search items..." class="search-input">
+                    <button class="search-btn">🔍</button>
+                </div>
+                <div class="listings-container" id="listingsContainer">
+                    <div class="empty-state">No listings available</div>
+                </div>
+            </div>
+
+            <!-- Buy Orders Tab -->
+            <div class="tab-content" id="buy-orders-tab">
+                <div class="search-bar">
+                    <input type="text" id="ordersSearch" placeholder="Search items..." class="search-input">
+                    <button class="search-btn">🔍</button>
+                </div>
+                <div class="orders-container" id="ordersContainer">
+                    <div class="empty-state">No buy orders available</div>
+                </div>
+            </div>
+
+            <!-- Pickups Tab -->
+            <div class="tab-content" id="pickups-tab">
+                <div class="search-bar">
+                    <input type="text" id="pickupsSearch" placeholder="Search pickups..." class="search-input">
+                    <button class="search-btn">🔍</button>
+                </div>
+                <div class="pickups-container" id="pickupsContainer">
+                    <div class="empty-state">No pickups available</div>
+                </div>
+            </div>
+
+            <!-- Sell Item Tab -->
+            <div class="tab-content" id="sell-tab">
+                <div class="form-container">
+                    <div class="form-group">
+                        <label>Select Item</label>
+                        <select id="sellItemSelect" class="form-input">
+                            <option value="">Select an item from your inventory...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Available Quantity: <span id="sellAvailableQty">0</span></label>
+                        <input type="number" id="sellQuantity" class="form-input" min="1" value="1" max="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Payment</label>
+                        <select id="sellPaymentType" class="form-input">
+                            <option value="core">Core (currency)</option>
+                            <option value="trade">Trade for another item</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="sellPriceGroup">
+                        <label>Price per Item</label>
+                        <input type="number" id="sellPrice" class="form-input" min="1" placeholder="Enter price">
+                    </div>
+                    <div class="form-group hidden" id="sellTradeGroup">
+                        <label>Item you want in return</label>
+                        <div class="icon-select" id="sellTradeItemSelect">
+                            <button type="button" class="icon-select-trigger form-input" id="sellTradeItemTrigger">
+                                <img class="icon-select-img" id="sellTradeItemIcon" alt="" src="">
+                                <span class="icon-select-label" id="sellTradeItemLabel">Select an item...</span>
+                                <span class="icon-select-arrow">&#9662;</span>
+                            </button>
+                            <div class="icon-select-panel hidden" id="sellTradeItemPanel">
+                                <input type="text" class="icon-select-search" id="sellTradeItemSearch" placeholder="Search items...">
+                                <div class="icon-select-list" id="sellTradeItemList"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="sellTradeItem" value="">
+                    </div>
+                    <div class="form-group hidden" id="sellTradeQtyGroup">
+                        <label>Quantity wanted, per item sold</label>
+                        <input type="number" id="sellTradeQuantity" class="form-input" min="1" value="1">
+                    </div>
+                    <button class="submit-btn" id="sellBtn">List Item</button>
+                </div>
+            </div>
+
+            <!-- Create Order Tab -->
+            <div class="tab-content" id="create-order-tab">
+                <div class="form-container">
+                    <div class="form-group">
+                        <label>Item You Want</label>
+                        <div class="icon-select" id="orderItemSelectWrap">
+                            <button type="button" class="icon-select-trigger form-input" id="orderItemTrigger">
+                                <img class="icon-select-img" id="orderItemIcon" alt="" src="">
+                                <span class="icon-select-label" id="orderItemLabel">Select an item...</span>
+                                <span class="icon-select-arrow">&#9662;</span>
+                            </button>
+                            <div class="icon-select-panel hidden" id="orderItemPanel">
+                                <input type="text" class="icon-select-search" id="orderItemSearch" placeholder="Search items...">
+                                <div class="icon-select-list" id="orderItemList"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="orderItemName" value="">
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" id="orderQuantity" class="form-input" min="1" value="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Payment</label>
+                        <select id="orderPaymentType" class="form-input">
+                            <option value="core">Core (currency)</option>
+                            <option value="trade">Trade another item</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="orderPriceGroup">
+                        <label>Price per Item</label>
+                        <input type="number" id="orderPrice" class="form-input" min="1" placeholder="Enter price">
+                    </div>
+                    <div class="form-group hidden" id="orderTradeGroup">
+                        <label>Item you're offering</label>
+                        <div class="icon-select" id="orderTradeItemSelect">
+                            <button type="button" class="icon-select-trigger form-input" id="orderTradeItemTrigger">
+                                <img class="icon-select-img" id="orderTradeItemIcon" alt="" src="">
+                                <span class="icon-select-label" id="orderTradeItemLabel">Select an item...</span>
+                                <span class="icon-select-arrow">&#9662;</span>
+                            </button>
+                            <div class="icon-select-panel hidden" id="orderTradeItemPanel">
+                                <input type="text" class="icon-select-search" id="orderTradeItemSearch" placeholder="Search items...">
+                                <div class="icon-select-list" id="orderTradeItemList"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="orderTradeItem" value="">
+                    </div>
+                    <div class="form-group hidden" id="orderTradeQtyGroup">
+                        <label>Quantity offered, per item wanted</label>
+                        <input type="number" id="orderTradeQuantity" class="form-input" min="1" value="1">
+                    </div>
+                    <div class="price-info" id="orderPriceInfo">
+                        <span>Total: <span id="orderTotal">0</span> Core</span>
+                    </div>
+                    <button class="submit-btn" id="orderBtn">Create Buy Order</button>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div class="tab-content" id="history-tab">
+                <div class="history-filters">
+                    <input type="text" id="historySearch" placeholder="Search history..." class="search-input">
+                    <select id="historyType" class="filter-select">
+                        <option value="">All Types</option>
+                        <option value="listing">Listings</option>
+                        <option value="purchase">Purchases</option>
+                        <option value="buyOrder">Buy Orders</option>
+                        <option value="fulfill">Fulfillments</option>
+                    </select>
+                    <button class="filter-btn" id="applyHistoryFilter">Apply Filters</button>
+                </div>
+                <div class="history-container" id="historyContainer">
+                    <div class="empty-state">No history available</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notification-container" id="notificationContainer"></div>
+    </div>
+
+    <!-- Confirmation Dialog -->
+    <div id="confirmDialog" class="confirm-dialog hidden">
+        <div class="confirm-dialog-content">
+            <h3 class="confirm-dialog-title" id="confirmDialogTitle">Confirm Action</h3>
+            <p class="confirm-dialog-message" id="confirmDialogMessage">Are you sure you want to proceed?</p>
+            <div class="confirm-dialog-buttons">
+                <button class="confirm-btn confirm-yes" id="confirmYes">Yes</button>
+                <button class="confirm-btn confirm-no" id="confirmNo">No</button>
+            </div>
+        </div>
+    </div>
+
+    
+
+<!-- ================= SHOP GRID ================= -->
+
+    <div id="shop" class="shop-container hidden">
+        <div class="shop-header">
+            <span class="shop-header-spacer"></span>
+            <h1 class="shop-title" id="shopTitle">Outpost</h1>
+            <button class="op-close-btn" id="opCloseBtn">×</button>
+        </div>
+        <div class="shop-tabs" id="shopTabs"></div>
+        <div class="shop-grid" id="shopGrid"></div>
+        <div class="op-notification-container" id="opNotificationContainer"></div>
+    </div>
+    <!-- The marketplace's own script, kept as-is under a distinct filename:
+         both resources called theirs script.js. It defines its own globals and
+         is loaded first; the shop script below is wrapped in an IIFE. -->
+    <script src="market.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

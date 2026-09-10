@@ -1,0 +1,331 @@
+-- =============================================================================
+-- vl_blackout -- client
+--
+-- Kills artificial lights, shows a red countdown and plays the audio cue.
+-- All state comes from GlobalState; the client never decides when a blackout
+-- starts or ends, it only reflects what the server says.
+-- =============================================================================
+
+local active = false
+local lastVersion = -1
+
+-- Bumped on every start and every end. A flicker thread carries the token it
+-- was born with and bails the moment it stops matching, so a blackout that is
+-- cancelled mid-flicker can never leave the map dark.
+local flickerToken = 0
+
+-- Set by the NUI the moment blackout.mp3 finishes, so the unstable phase can
+-- end exactly with the audio instead of guessing at the track length.
+local soundEnded = false
+
+local function debug(msg)
+    if VLBlackout.debug then
+        print('[vl_blackout] ' .. msg)
+    end
+end
+
+-- qbx_core may not have booted yet on a fresh join, and a missing export throws.
+-- A failed notification must never take down the thread that owns the lights.
+local function notify(text, kind)
+    pcall(function()
+        exports.qbx_core:Notify(text, kind)
+    end)
+end
+
+local function applyLights(on)
+    SetArtificialLightsState(on)
+    -- The native's "affects vehicles" flag is inverted relative to how you'd
+    -- read it: passing true means vehicle lights ALSO die. Config exposes the
+    -- plain-English meaning, so translate here.
+    local affect = VLBlackout.lights and VLBlackout.lights.affectVehicles
+    SetArtificialLightsStateAffectsVehicles(on and affect or true)
+end
+
+local function showUi(secondsRemaining)
+    debug(('showUi seconds=%s timer=%s sound=%s')
+        :format(tostring(secondsRemaining),
+                tostring(VLBlackout.timer and VLBlackout.timer.enabled),
+                tostring(VLBlackout.sound and VLBlackout.sound.enabled)))
+
+    SendNUIMessage({
+        action = 'start',
+        seconds = secondsRemaining,
+        label = VLBlackout.timer.label,
+        urgentAt = VLBlackout.timer.urgentAt,
+        showTimer = VLBlackout.timer.enabled,
+        sound = VLBlackout.sound.enabled and {
+            file = VLBlackout.sound.file,
+            volume = VLBlackout.sound.volume,
+            duration = VLBlackout.sound.durationSeconds,
+            fadeIn = VLBlackout.sound.fadeInSeconds,
+            fadeOut = VLBlackout.sound.fadeOutSeconds,
+        } or nil,
+    })
+end
+
+local function hideUi()
+    SendNUIMessage({ action = 'stop' })
+end
+
+-- Stutters the lights and leaves them lit. The caller drops them for good.
+-- Never raises: a bad or missing config just means no flicker, not a dead
+-- thread that leaves the lights on.
+---@param token integer
+local function runFlicker(token)
+    local cfg = VLBlackout.flicker
+    if not cfg or not cfg.enabled then return end
+
+    local seq = cfg.sequence
+    if type(seq) ~= 'table' then return end
+
+    debug(('flicker sequence: %d rows'):format(#seq))
+
+    for i = 1, #seq do
+        local step = seq[i]
+        if type(step) == 'table' then
+            local darkMs = tonumber(step.dark) or 0
+            local litMs  = tonumber(step.lit) or 0
+
+            if darkMs > 0 then
+                if token ~= flickerToken then return end
+                applyLights(true)
+                Wait(darkMs)
+            end
+
+            -- The final row still comes back lit; the caller is what drops the
+            -- lights for good, so the sequence never has to end on darkness.
+            if litMs > 0 then
+                if token ~= flickerToken then return end
+                applyLights(false)
+                Wait(litMs)
+            end
+        end
+    end
+end
+
+---@return table|nil
+local function pickEvent(events)
+    local total = 0
+    for i = 1, #events do
+        total = total + (tonumber(events[i].weight) or 1)
+    end
+    if total <= 0 then return nil end
+
+    local roll, acc = math.random() * total, 0
+    for i = 1, #events do
+        acc = acc + (tonumber(events[i].weight) or 1)
+        if roll <= acc then return events[i] end
+    end
+    return events[#events]
+end
+
+-- The grid fighting back: random bursts on top of the countdown, until the
+-- audio cue ends or the cap is hit. Always settles dark -- the blackout itself
+-- is still running and is owned by the server, not by this.
+---@param token integer
+local function runUnstable(token)
+    local cfg = VLBlackout.unstable
+    if not cfg or not cfg.enabled then return end
+
+    local events = cfg.events
+    if type(events) ~= 'table' or #events == 0 then return end
+
+    local gap = cfg.gapMs or {}
+    -- math.random(m, n) throws on Lua 5.4 if either bound is a float, and this
+    -- config is hand-edited, so floor them rather than trusting the values.
+    local gapMin = math.floor(tonumber(gap.min) or 1500)
+    local gapMax = math.floor(tonumber(gap.max) or 5000)
+    if gapMax < gapMin then gapMax = gapMin end
+
+    local flashMs  = tonumber(cfg.flashMs) or 110
+    local burstGap = tonumber(cfg.burstGapMs) or 90
+    local maxMs    = (tonumber(cfg.maxSeconds) or 30) * 1000
+    local elapsed  = 0
+
+    -- Only wait on the audio if there IS audio; otherwise the ended callback
+    -- never arrives and this would run to the cap every time.
+    local followSound = cfg.followSound and VLBlackout.sound and VLBlackout.sound.enabled
+
+    local function finished()
+        return token ~= flickerToken
+            or elapsed >= maxMs
+            or (followSound and soundEnded)
+    end
+
+    local function hold(ms)
+        Wait(ms)
+        elapsed = elapsed + ms
+    end
+
+    debug(('unstable phase starting, cap %dms, followSound=%s')
+        :format(maxMs, tostring(followSound)))
+
+    while not finished() do
+        applyLights(true)
+        hold(math.random(gapMin, gapMax))
+        if finished() then break end
+
+        local ev = pickEvent(events)
+        if not ev then break end
+
+        if ev.restoreMs then
+            applyLights(false)
+            hold(tonumber(ev.restoreMs) or 2000)
+        else
+            for _ = 1, (tonumber(ev.flicks) or 2) do
+                if finished() then break end
+                applyLights(false)
+                hold(flashMs)
+                if finished() then break end
+                applyLights(true)
+                hold(burstGap)
+            end
+        end
+    end
+
+    if token == flickerToken then
+        applyLights(true)
+        debug(('unstable phase over after %dms'):format(elapsed))
+    end
+end
+
+local function startBlackout(secondsRemaining)
+    if active then return end
+    active = true
+
+    flickerToken = flickerToken + 1
+    local token = flickerToken
+    soundEnded = false
+
+    debug(('startBlackout %s seconds'):format(tostring(secondsRemaining)))
+
+    -- The HUD and the audio cue fire IMMEDIATELY and are deliberately not
+    -- gated on the flicker. The stutter is decoration; the countdown is not.
+    -- Hanging the UI off the end of the light animation means any hiccup in
+    -- that thread silently costs you the timer and the sound as well.
+    showUi(secondsRemaining)
+    notify('All lights have gone out.', 'error')
+
+    -- Lights get their own thread because the flicker yields, and the callers
+    -- of startBlackout (state bag handler, net event) must not block on it.
+    CreateThread(function()
+        runFlicker(token)
+        if token ~= flickerToken then return end
+        applyLights(true)
+        debug('blackout settled')
+
+        runUnstable(token)
+    end)
+end
+
+local function endBlackout(silent)
+    flickerToken = flickerToken + 1
+
+    if not active then
+        hideUi()
+        return
+    end
+    active = false
+
+    applyLights(false)
+    hideUi()
+
+    if not silent then
+        notify('Power restored.', 'success')
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- State sync
+-- -----------------------------------------------------------------------------
+
+---@param state table
+---@param isInitial boolean true on first read, i.e. a player joining mid-blackout
+local function onState(state, isInitial)
+    if type(state) ~= 'table' then return end
+    if state.version == lastVersion then return end
+    lastVersion = state.version
+
+    debug(('onState active=%s version=%s initial=%s')
+        :format(tostring(state.active), tostring(state.version), tostring(isInitial)))
+
+    if state.active then
+        if isInitial then
+            -- Joining mid-blackout: only the server knows how much is left.
+            -- The client CANNOT work it out itself -- FiveM's client Lua has no
+            -- `os` library, so os.time() is nil here and any attempt to compare
+            -- against the server's epoch throws and kills this handler.
+            TriggerServerEvent('vl_blackout:requestState')
+        else
+            -- A live toggle is always a fresh blackout, so the full duration
+            -- is the correct remaining time. No clock arithmetic needed.
+            startBlackout(state.duration)
+        end
+    else
+        endBlackout(isInitial)
+    end
+end
+
+-- Server's reply to requestState, with the remaining seconds it computed.
+RegisterNetEvent('vl_blackout:syncState', function(active, remaining)
+    if active and remaining and remaining > 0 then
+        startBlackout(remaining)
+    else
+        endBlackout(true)
+    end
+end)
+
+-- State bag handlers run outside a coroutine, so anything that might yield has
+-- to be dispatched into a thread rather than called directly here.
+AddStateBagChangeHandler('blackout', 'global', function(_, _, value)
+    CreateThread(function()
+        onState(value, false)
+    end)
+end)
+
+CreateThread(function()
+    Wait(1500)   -- let GlobalState replicate on first join
+    local state = GlobalState.blackout
+    if state then onState(state, true) end
+end)
+
+RegisterNetEvent('vl_blackout:forceCleanup', function()
+    endBlackout(true)
+end)
+
+-- The NUI owns the audio element, so it is the only thing that knows when the
+-- track actually finished. The unstable phase reads this flag rather than a
+-- hardcoded track length.
+RegisterNUICallback('soundEnded', function(_, cb)
+    soundEnded = true
+    debug('audio cue finished')
+    cb('ok')
+end)
+
+-- -----------------------------------------------------------------------------
+-- Test command: /blackouttest -- runs the flicker + HUD locally, no server, no
+-- permissions. Purely for checking the visuals without triggering a real
+-- server-wide outage.
+-- -----------------------------------------------------------------------------
+
+RegisterCommand('blackouttest', function()
+    if active then
+        endBlackout(false)
+        return
+    end
+    startBlackout(20)
+    CreateThread(function()
+        Wait(20000)
+        endBlackout(false)
+    end)
+end, false)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    -- Always restore lights, otherwise stopping mid-blackout leaves the whole
+    -- map dark with nothing left running to turn it back on. Kill any in-flight
+    -- flicker first so it cannot re-darken after this runs.
+    flickerToken = flickerToken + 1
+    SetArtificialLightsState(false)
+    SetArtificialLightsStateAffectsVehicles(true)
+end)

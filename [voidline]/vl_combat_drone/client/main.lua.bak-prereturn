@@ -1,0 +1,813 @@
+-- =============================================================================
+-- combat_drone / client/main.lua
+--
+-- NETWORKING APPROACH (read this before touching anything below):
+--
+-- 1. A drone is a real networked ped created with CreatePed(..., true, true)
+--    and SetEntityAsMissionEntity(ped, true, true). Once created it gets a
+--    network ID (NetworkGetNetworkIdFromEntity) and FiveM's OneSync layer
+--    replicates its position/health/etc. to every client automatically --
+--    we never manually sync transform data ourselves.
+--
+-- 2. Only ONE client should ever be *driving* a given drone's AI at a time
+--    (deciding its state, moving it, telling it to shoot). FiveM/OneSync
+--    already elects a single "owner" per networked entity and migrates that
+--    ownership automatically (typically to the closest client) as players
+--    move around. We piggyback on that mechanism instead of reinventing it:
+--    every client that knows about a drone runs a cheap watcher loop, and
+--    that loop only executes AI logic when NetworkHasControlOfEntity(ped)
+--    is true for the *local* player. This guarantees exactly one client is
+--    ever issuing movement/combat natives for a given drone, so there is no
+--    duplicated shooting and no duplicated AI decision-making, even though
+--    every nearby client is technically "watching" the entity.
+--
+-- 3. The server (server.lua) never runs any AI. It only relays /spawndrone
+--    and /deletedrones commands and keeps a registry of network IDs so late
+--    joining clients can discover drones that already exist
+--    (combat_drone:syncRegistry) and so every client is told about new spawns
+--    (combat_drone:droneRegistered) and despawns
+--    (combat_drone:droneUnregistered) as they happen.
+--
+-- 4. Because AI *decision state* (current target, search timers, patrol
+--    index, etc.) is kept in a plain Lua table on whichever client currently
+--    has control, that state is intentionally not synced between clients. If
+--    control migrates to a different client mid-fight, the new controlling
+--    client re-derives the situation from scratch within one detection scan
+--    (roughly Config.Detection.scanInterval ms) rather than inheriting the
+--    old client's memory. This is a deliberate simplicity/perf trade-off:
+--    it avoids a constant stream of state-sync network events for something
+--    players won't perceive as a discontinuity (the drone's actual position/
+--    health, which IS what players see, stays perfectly synced via OneSync).
+-- =============================================================================
+
+-- =============================================================================
+-- DEPENDENCY CHECK
+-- =============================================================================
+-- main.lua is loaded LAST (see fxmanifest), so by the time this runs every other
+-- module must already exist. If one doesn't, that file did not execute on THIS
+-- client -- which in practice always means the client is holding a stale copy of
+-- the resource's script list. FiveM sends that list at connect time, so ADDING a
+-- file to client_scripts needs a client reconnect; a server-side
+-- `restart vl_combat_drone` alone re-sends changed file *contents* but not a
+-- changed file *list*.
+--
+-- Without this check the symptom is an endless spray of "attempt to index a nil
+-- value (global 'Warning')" from whichever module is referenced first, which
+-- says nothing whatsoever about the actual cause.
+
+local REQUIRED_MODULES = {
+    { name = 'Utils',        file = 'client/utils.lua' },
+    { name = 'Obstacle',     file = 'client/obstacle.lua' },
+    { name = 'Movement',     file = 'client/movement.lua' },
+    { name = 'Detection',    file = 'client/detection.lua' },
+    { name = 'Targeting',    file = 'client/targeting.lua' },
+    { name = 'Combat',       file = 'client/combat.lua' },
+    { name = 'Strike',       file = 'client/strike.lua' },
+    { name = 'Patrol',       file = 'client/patrol.lua' },
+    { name = 'Squad',        file = 'client/squad.lua' },
+    { name = 'Visual',       file = 'client/visual.lua' },
+    { name = 'Audio',        file = 'client/audio.lua' },
+    { name = 'Warning',      file = 'client/warning.lua' },
+    { name = 'StateMachine', file = 'client/statemachine.lua' },
+    { name = 'DebugDraw',    file = 'client/debug.lua' },
+}
+
+local MissingModules = {}
+for _, m in ipairs(REQUIRED_MODULES) do
+    if _G[m.name] == nil then
+        MissingModules[#MissingModules + 1] = ('%s (%s)'):format(m.name, m.file)
+    end
+end
+
+local function ReportMissingModules()
+    print('[combat_drone] ----------------------------------------------------------------')
+    print('[combat_drone] These client scripts did NOT load on this client:')
+    for _, m in ipairs(MissingModules) do print('[combat_drone]     - ' .. m) end
+    print('[combat_drone]')
+    print('[combat_drone] FIX: type  reconnect  in this console, or rejoin the server.')
+    print('[combat_drone] Adding a NEW file to client_scripts requires a client reconnect;')
+    print('[combat_drone] a server-side "restart vl_combat_drone" is not enough on its own.')
+    print('[combat_drone]')
+    print('[combat_drone] Drone AI is disabled on this client until then.')
+    print('[combat_drone] ----------------------------------------------------------------')
+end
+
+if #MissingModules > 0 then
+    CreateThread(function()
+        Wait(1000) -- let the rest of the startup spam clear first
+        ReportMissingModules()
+    end)
+end
+
+-- ActiveDrones: drones the LOCAL client currently has control of (ped -> drone table).
+-- Used by squad coordination and debug draw. Rebuilt continuously as control changes.
+ActiveDrones = {}
+
+-- Every drone (netId -> drone table) this client is aware of at all, whether
+-- or not it currently has control. Used for cleanup / lookups by netId or ped.
+local KnownDronesByNetId = {}
+local KnownDronesByPed = {}
+
+local mySpawnedNetIds = {} -- netIds this client itself spawned, for /deletedrones bookkeeping
+
+-- =============================================================================
+-- DRONE OBJECT
+-- =============================================================================
+
+local function NewDroneWrapper(ped, netId)
+    local drone = {
+        ped = ped,
+        netId = netId,
+        state = 'IDLE',
+        target = nil,
+        velocity = vector3(0.0, 0.0, 0.0),
+        knownTargets = {},
+        lastDamager = nil,
+        currentAttacker = nil,
+        lastAttackedTime = 0,
+    }
+
+    Movement.Init(drone)
+    Detection.Init(drone)
+    Combat.Init(drone)
+    Patrol.Init(drone)
+    StateMachine.Init(drone)
+
+    return drone
+end
+
+-- Applies entity-level combat tuning. Safe/idempotent to call from whichever
+-- client currently has control (see networking note above).
+local function ApplyControlledSetup(drone)
+    Movement.Init(drone) -- re-assert gravity-disable defensively after any migration
+    Combat.ApplyWeaponTuning(drone)
+end
+
+-- =============================================================================
+-- SPAWNING (runs on whichever client requested the spawn)
+-- =============================================================================
+
+local function LoadModel(model, label)
+    RequestModel(model)
+    local timeout = GetGameTimer() + 10000
+    while not HasModelLoaded(model) and GetGameTimer() < timeout do
+        Wait(0)
+    end
+    if not HasModelLoaded(model) then
+        print(('[combat_drone] Failed to load %s model, aborting spawn.'):format(label))
+        return false
+    end
+    return true
+end
+
+-- Spawns the drone vehicle and seats a pilot ped in it. The PED is still the
+-- entity registered with the server, so all the discovery/registry code stays
+-- unchanged -- every client finds the vehicle from the ped it's sitting in.
+local function CreatePilotedDrone(coords, heading)
+    local vehModel = Config.Visual.model
+    if not LoadModel(vehModel, 'drone vehicle') then return nil end
+
+    local veh = CreateVehicle(vehModel, coords.x, coords.y, coords.z, heading or 0.0, true, true)
+    SetModelAsNoLongerNeeded(vehModel)
+    if not veh or veh == 0 or not DoesEntityExist(veh) then
+        print('[combat_drone] Failed to create drone vehicle.')
+        return nil
+    end
+
+    SetEntityAsMissionEntity(veh, true, true)
+    SetVehicleEngineOn(veh, true, true, false)
+    SetVehicleDoorsLocked(veh, 2)          -- players can't jack the drone
+    SetVehicleIsConsideredByPlayer(veh, false)
+    SetVehicleHasBeenOwnedByPlayer(veh, false)
+    SetEntityInvincible(veh, false)        -- it must be destructible: it's the drone's health
+    SetEntityMaxHealth(veh, Config.Health)
+    SetEntityHealth(veh, Config.Health)
+    if Config.Piloted.holdHoverNozzle then
+        SetVehicleFlightNozzlePosition(veh, 1.0) -- VTOL hover
+    end
+
+    local pedModel = Config.DroneModel
+    if not LoadModel(pedModel, 'pilot') then
+        DeleteEntity(veh)
+        return nil
+    end
+
+    local ped = CreatePed(4, pedModel, coords.x, coords.y, coords.z, heading or 0.0, true, true)
+    SetModelAsNoLongerNeeded(pedModel)
+    if not ped or ped == 0 or not DoesEntityExist(ped) then
+        DeleteEntity(veh)
+        return nil
+    end
+
+    SetEntityAsMissionEntity(ped, true, true)
+    SetPedIntoVehicle(ped, veh, -1) -- -1 = driver seat
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    SetPedCanBeDraggedOut(ped, false)
+    SetPedFleeAttributes(ped, 0, false)
+    SetPedCanRagdoll(ped, false)
+    SetPedDiesWhenInjured(ped, false)
+    SetPedSuffersCriticalHits(ped, false)
+    SetPedCombatAttributes(ped, 20, true) -- BF_AlwaysFight
+    SetPedCombatAttributes(ped, 3, true)  -- BF_CanUseVehicles
+    SetPedAccuracy(ped, Config.Weapon.accuracy)
+
+    local vehNetId = NetworkGetNetworkIdFromEntity(veh)
+    SetNetworkIdCanMigrate(vehNetId, true)
+    SetNetworkIdExistsOnAllMachines(vehNetId, true)
+
+    local netId = NetworkGetNetworkIdFromEntity(ped)
+    SetNetworkIdCanMigrate(netId, true)
+    SetNetworkIdExistsOnAllMachines(netId, true)
+
+    return ped, netId
+end
+
+local function CreateDroneEntity(coords, heading)
+    if Config.FlightMode == 'piloted' then
+        return CreatePilotedDrone(coords, heading)
+    end
+
+    local model = Config.DroneModel
+    if not LoadModel(model, 'drone') then return nil end
+
+    local ped = CreatePed(4, model, coords.x, coords.y, coords.z, heading or 0.0, true, true)
+    SetModelAsNoLongerNeeded(model)
+
+    SetEntityAsMissionEntity(ped, true, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    SetPedFleeAttributes(ped, 0, false)
+    SetPedCanRagdoll(ped, false)
+    SetPedCanBeTargetted(ped, true)
+    SetPedDiesWhenInjured(ped, false)
+    SetPedSuffersCriticalHits(ped, false)
+    SetEntityHasGravity(ped, false)
+    SetEntityInvincible(ped, false)
+
+    SetEntityMaxHealth(ped, Config.Health)
+    SetEntityHealth(ped, Config.Health)
+    SetPedArmour(ped, Config.Armor)
+
+    GiveWeaponToPed(ped, Config.Weapon.hash, Config.Weapon.ammo, false, true)
+    SetCurrentPedWeapon(ped, Config.Weapon.hash, true)
+    SetPedAccuracy(ped, Config.Weapon.accuracy)
+    SetPedShootRate(ped, Config.Weapon.shootRate)
+    SetPedCombatAttributes(ped, 0, false)  -- BF_CanUseCover off, drone is airborne
+    SetPedCombatAttributes(ped, 20, true)  -- BF_AlwaysFight
+
+    -- Allow OneSync to migrate ownership of this entity to other clients as
+    -- players move around, per the networking note at the top of this file.
+    local netId = NetworkGetNetworkIdFromEntity(ped)
+    SetNetworkIdCanMigrate(netId, true)
+    SetNetworkIdExistsOnAllMachines(netId, true)
+
+    return ped, netId
+end
+
+local pendingNetIds = {} -- netIds claimed synchronously to prevent a duplicate watcher race
+
+--- netId -> station coords that arrived before the drone did.
+PendingStations = {}
+PendingStationHeadings = {}
+
+local function StartDroneWatchers(netId)
+    -- Running the AI with a module missing just produces nil-index spam from a
+    -- dozen call sites. Refuse, once, with an actionable message instead.
+    if #MissingModules > 0 then return end
+    if KnownDronesByNetId[netId] or pendingNetIds[netId] then return end -- already watching or about to
+    pendingNetIds[netId] = true
+
+    CreateThread(function()
+        local timeout = GetGameTimer() + 15000
+        while not NetworkDoesEntityExistWithNetworkId(netId) and GetGameTimer() < timeout do
+            Wait(200)
+        end
+        if not NetworkDoesEntityExistWithNetworkId(netId) then
+            pendingNetIds[netId] = nil
+            return
+        end
+
+        local ped = NetworkGetEntityFromNetworkId(netId)
+        if not DoesEntityExist(ped) then
+            pendingNetIds[netId] = nil
+            return
+        end
+
+        local drone = NewDroneWrapper(ped, netId)
+
+        -- Apply a station that was announced before this client had the drone.
+        if PendingStations[netId] then
+            drone.station = PendingStations[netId]
+            drone.stationHeading = PendingStationHeadings[netId]
+            PendingStations[netId] = nil
+            PendingStationHeadings[netId] = nil
+        end
+
+        KnownDronesByNetId[netId] = drone
+        KnownDronesByPed[ped] = drone
+        pendingNetIds[netId] = nil
+
+        if Config.FlightMode == 'piloted' then
+            -- Find the vehicle this pilot is sitting in and keep the reference
+            -- fresh. Every client does this independently; the vehicle itself is
+            -- networked, so they all resolve to the same entity.
+            CreateThread(function()
+                while DoesEntityExist(ped) do
+                    local veh = GetVehiclePedIsIn(ped, false)
+                    if veh ~= 0 and DoesEntityExist(veh) then
+                        if drone.vehicle ~= veh then
+                            drone.vehicle = veh
+                            KnownDronesByPed[veh] = drone -- so damage to the hull maps back to this drone
+                            Movement.Init(drone)
+                        end
+                        if Config.Piloted.hidePilot then
+                            SetEntityVisible(ped, false, false)
+                        end
+                        if Config.Piloted.holdHoverNozzle and NetworkHasControlOfEntity(veh) then
+                            -- The nozzle lerps back toward forward-flight, so it
+                            -- has to be re-asserted rather than set once.
+                            SetVehicleFlightNozzlePosition(veh, 1.0)
+                        end
+                    end
+                    Wait(500)
+                end
+            end)
+        else
+            -- Cosmetic shell: every client attaches its own local copy to the
+            -- shared ped, regardless of who controls the AI (see client/visual.lua).
+            Visual.Attach(drone)
+        end
+
+        local hadControlLastTick = false
+
+        -- Decision thread: state machine + patrol/search bookkeeping.
+        CreateThread(function()
+            while DoesEntityExist(ped) do
+                if NetworkHasControlOfEntity(ped) then
+                    if not hadControlLastTick then
+                        ApplyControlledSetup(drone)
+                    end
+                    ActiveDrones[ped] = drone
+                    hadControlLastTick = true
+                    StateMachine.Decide(drone)
+                else
+                    ActiveDrones[ped] = nil
+                    hadControlLastTick = false
+                end
+                Wait(Config.Intervals.stateMachine)
+            end
+        end)
+
+        -- Detection thread: area scans at a coarser interval than the flight tick.
+        CreateThread(function()
+            while DoesEntityExist(ped) do
+                if NetworkHasControlOfEntity(ped) then
+                    Detection.Scan(drone)
+                    Wait(Config.Detection.scanInterval)
+                else
+                    Wait(Config.Intervals.stateMachine) -- cheap idle poll while not controlling
+                end
+            end
+        end)
+
+        -- Flight thread: high-frequency movement/combat integration.
+        CreateThread(function()
+            local lastTick = GetGameTimer()
+            while DoesEntityExist(ped) do
+                local now = GetGameTimer()
+                local dt = math.min((now - lastTick) / 1000.0, 0.25)
+                lastTick = now
+
+                if NetworkHasControlOfEntity(ped) then
+                    if drone.target then
+                        Detection.RefreshVisibility(drone, drone.target)
+                    end
+                    StateMachine.FlightTick(drone, dt)
+                    Wait(Config.Intervals.movementActive)
+                else
+                    Wait(Config.Intervals.movementIdle)
+                end
+            end
+        end)
+
+        -- Debug draw thread (local visual only, cheap early-out when disabled).
+        CreateThread(function()
+            while DoesEntityExist(ped) do
+                if not Config.Debug then
+                    Wait(1000) -- don't spin a per-frame thread just to skip drawing
+                else
+                    if NetworkHasControlOfEntity(ped) then
+                        DebugDraw.Draw(drone)
+                    end
+                    Wait(Config.Intervals.debugDraw)
+                end
+            end
+        end)
+
+        -- Cleanup once the entity is gone (destroyed or deleted).
+        while DoesEntityExist(ped) do Wait(1000) end
+
+        -- The siren and any countdown must die with the drone. Decide() would
+        -- normally handle both, but it stops running the moment the entity is
+        -- gone, so they're torn down explicitly here.
+        Audio.Forget(netId)
+        Warning.Cancel(drone, 'drone gone')
+
+        Visual.Detach(ped)
+        if drone.vehicle then
+            KnownDronesByPed[drone.vehicle] = nil
+            if DoesEntityExist(drone.vehicle) and NetworkHasControlOfEntity(drone.vehicle) then
+                DeleteEntity(drone.vehicle) -- the hull must not outlive its pilot
+            end
+        end
+        KnownDronesByNetId[netId] = nil
+        KnownDronesByPed[ped] = nil
+        ActiveDrones[ped] = nil
+        TriggerServerEvent('combat_drone:unregisterDrone', netId)
+    end)
+end
+
+local function SpawnDroneNearPlayer()
+    if #MissingModules > 0 then
+        ReportMissingModules()
+        return
+    end
+
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
+    local fwd = GetEntityForwardVector(playerPed)
+    local spawnCoords = coords + fwd * Config.SpawnDistanceFromPlayer + vector3(0.0, 0.0, Config.Movement.patrolHoverHeight)
+
+    local ped, netId = CreateDroneEntity(spawnCoords, GetEntityHeading(playerPed) + 180.0)
+    if not ped then return end
+
+    mySpawnedNetIds[#mySpawnedNetIds + 1] = netId
+    TriggerServerEvent('combat_drone:registerDrone', netId)
+    StartDroneWatchers(netId)
+end
+
+-- =============================================================================
+-- EVENTS: commands relayed from server.lua
+-- =============================================================================
+
+RegisterNetEvent('combat_drone:spawnRequested')
+AddEventHandler('combat_drone:spawnRequested', function()
+    SpawnDroneNearPlayer()
+end)
+
+-- Posts a drone to a fixed station. The server picks one client to do this so a
+-- station is created exactly once, then tells everyone about the netId.
+--
+-- `stationIndex` travels with it so the server can tell which station this drone
+-- belongs to and re-post that one if it is destroyed.
+RegisterNetEvent('combat_drone:spawnAtStation')
+AddEventHandler('combat_drone:spawnAtStation', function(coords, stationIndex)
+    if #MissingModules > 0 then
+        ReportMissingModules()
+        return
+    end
+
+    -- Stations are vector4: xyz is the hold position, w the heading held there.
+    local heading = (type(coords) == 'table' or type(coords) == 'vector4') and (coords.w or coords[4]) or nil
+
+    if type(coords) ~= 'vector3' then
+        local x, y, z = coords.x or coords[1], coords.y or coords[2], coords.z or coords[3]
+        if type(x) ~= 'number' then return end
+        coords = vector3(x + 0.0, y + 0.0, z + 0.0)
+    end
+
+    -- With absoluteAltitude the configured Z IS the altitude; only add hover
+    -- height when the station was given as a ground point.
+    local spawnCoords = coords
+    if not (Config.AutoSpawn and Config.AutoSpawn.absoluteAltitude) then
+        spawnCoords = vector3(coords.x, coords.y, coords.z + Config.Movement.patrolHoverHeight)
+    end
+
+    local ped, netId = CreateDroneEntity(spawnCoords, heading or (math.random(0, 359) + 0.0))
+
+    if not ped then
+        -- Always printed, not gated on Config.Debug: a station that silently
+        -- fails to build looks identical to one that was never requested.
+        print(('[combat_drone] station %s: FAILED to create the drone at %.0f, %.0f, %.0f')
+            :format(tostring(stationIndex), spawnCoords.x, spawnCoords.y, spawnCoords.z))
+        return
+    end
+
+    print(('[combat_drone] station %s: posted drone netId %s at %.0f, %.0f, %.0f')
+        :format(tostring(stationIndex), tostring(netId), spawnCoords.x, spawnCoords.y, spawnCoords.z))
+
+    mySpawnedNetIds[#mySpawnedNetIds + 1] = netId
+    TriggerServerEvent('combat_drone:registerDrone', netId, stationIndex, coords, heading)
+    StartDroneWatchers(netId)
+end)
+
+-- The station a drone belongs to, by netId, replicated from the server so every
+-- client agrees on where a given drone lives -- including clients that stream it
+-- in long after it was posted.
+RegisterNetEvent('combat_drone:setStation')
+AddEventHandler('combat_drone:setStation', function(netId, coords, heading)
+    if type(coords) ~= 'vector3' then
+        local x, y, z = coords.x or coords[1], coords.y or coords[2], coords.z or coords[3]
+        if type(x) ~= 'number' then return end
+        coords = vector3(x + 0.0, y + 0.0, z + 0.0)
+    end
+
+    local drone = KnownDronesByNetId[netId]
+    if drone then
+        drone.station = coords
+        drone.stationHeading = heading
+    else
+        PendingStationHeadings[netId] = heading
+        -- Not known here yet. Remember it so StartDroneWatchers can apply it
+        -- when the drone does arrive.
+        PendingStations[netId] = coords
+    end
+end)
+
+RegisterNetEvent('combat_drone:droneRegistered')
+AddEventHandler('combat_drone:droneRegistered', function(netId)
+    StartDroneWatchers(netId)
+end)
+
+RegisterNetEvent('combat_drone:syncRegistry')
+AddEventHandler('combat_drone:syncRegistry', function(netIds)
+    for _, netId in ipairs(netIds) do
+        StartDroneWatchers(netId)
+    end
+end)
+
+-- Takes control if needed, then deletes. Used for both the pilot and the hull:
+-- deleting only the ped would leave orphaned drone vehicles floating in the sky.
+local function RequestAndDelete(entity)
+    if not entity or entity == 0 or not DoesEntityExist(entity) then return end
+    if not NetworkHasControlOfEntity(entity) then
+        NetworkRequestControlOfEntity(entity)
+        local timeout = GetGameTimer() + 1000
+        while not NetworkHasControlOfEntity(entity) and GetGameTimer() < timeout do
+            Wait(0)
+        end
+    end
+    if NetworkHasControlOfEntity(entity) then
+        SetEntityAsMissionEntity(entity, true, true)
+        DeleteEntity(entity)
+    end
+end
+
+RegisterNetEvent('combat_drone:deleteAllRequested')
+AddEventHandler('combat_drone:deleteAllRequested', function()
+    for netId, drone in pairs(KnownDronesByNetId) do
+        Visual.Detach(drone.ped)
+        RequestAndDelete(drone.vehicle)
+        RequestAndDelete(drone.ped)
+    end
+    Audio.StopAll()
+    mySpawnedNetIds = {}
+end)
+
+-- Diagnostic: prints exactly where the firing pipeline stands for every drone
+-- this client is simulating. Run `dronedebug` in F8 if the drone won't shoot.
+RegisterCommand('dronedebug', function()
+    local n = 0
+    for ped, drone in pairs(ActiveDrones) do
+        n = n + 1
+        local target = drone.target
+        local mem = target and drone.knownTargets[target]
+        local flyer = Utils.Flyer(drone)
+        print(('[combat_drone] --- drone %s ---'):format(tostring(ped)))
+        print(('  state=%s  piloted=%s  vehicle=%s')
+            :format(drone.state, tostring(Utils.IsPiloted(drone)), tostring(drone.vehicle)))
+        print(('  target=%s  visible=%s  distance=%s')
+            :format(tostring(target),
+                    mem and tostring(mem.isVisible) or 'n/a',
+                    mem and string.format('%.1f', mem.distance or -1) or 'n/a'))
+        print(('  bursting=%s  fireMethod=%s  style=%s')
+            :format(tostring(drone.combat and drone.combat.isBursting),
+                    Config.Weapon.fireMethod, Config.Weapon.style))
+        local sense = drone.sense
+        print(('  blocked=%s  nearest=%s  brake=%s  stuckEscape=%s')
+            :format(tostring(sense and sense.blocked),
+                    sense and sense.nearest ~= math.huge and string.format('%.1fm', sense.nearest) or 'clear',
+                    sense and string.format('%.2f', sense.brake) or 'n/a',
+                    tostring(drone.stuck and drone.stuck.escapeUntil or 0)))
+        print(('  warning=%s  siren=%s')
+            :format(drone.warning and ('player ' .. drone.warning.serverId) or 'none',
+                    tostring(drone.state == 'WARNING' or drone.state == 'TRACKING' or drone.state == 'ENGAGING')))
+        print(('  maxFiringDistance=%.1f  shotsFired=%d  hitsLanded=%d  lastShot=%sms ago')
+            :format(Config.Weapon.maxFiringDistance,
+                    Combat.shotsFired or 0, Combat.hitsLanded or 0,
+                    Combat.lastShotAt and tostring(GetGameTimer() - Combat.lastShotAt) or 'never'))
+        print(('  laserAssetLoaded=%s  fallbackLoaded=%s')
+            :format(tostring(HasWeaponAssetLoaded(Config.Weapon.laserHash)),
+                    tostring(HasWeaponAssetLoaded(Config.Weapon.fallbackHash))))
+        print(('  flyerCoords=%s'):format(tostring(GetEntityCoords(flyer))))
+    end
+
+    -- Is damage actually landing? 20 dmg/shot at 100ms should be lethal fast,
+    -- so if health never moves the shots are being absorbed rather than missed.
+    local me = PlayerPedId()
+    print(('[combat_drone] you: health=%d armour=%d invincible=%s')
+        :format(GetEntityHealth(me), GetPedArmour(me), tostring(GetPlayerInvincible(PlayerId()))))
+    if n == 0 then
+        print('[combat_drone] This client is not simulating any drone right now (no control / none spawned).')
+    end
+end, false)
+
+-- Forces the nearest simulated drone to fire one shot at you, bypassing all AI
+-- gating. If this draws a beam, the weapon path works and the problem is
+-- upstream in detection/targeting; if it does not, the problem is the shot itself.
+RegisterCommand('dronefiretest', function()
+    for _, drone in pairs(ActiveDrones) do
+        FireDirectShot(drone, PlayerPedId())
+        print('[combat_drone] forced one shot from drone ' .. tostring(drone.ped))
+        return
+    end
+    print('[combat_drone] no drone under this client\'s control to test with.')
+end, false)
+
+-- Decisive isolation test: damages YOU directly, with no drone involved.
+-- If your health doesn't move here, nothing the drone does will ever hurt you
+-- (godmode / a medical resource is absorbing it) and the drone is not at fault.
+RegisterCommand('dronedmgtest', function()
+    local me = PlayerPedId()
+    local before = GetEntityHealth(me)
+    ApplyDamageToPed(me, 25, true)
+    Wait(100)
+    local after = GetEntityHealth(me)
+    print(('[combat_drone] direct damage test: health %d -> %d (invincible=%s, armour=%d)')
+        :format(before, after, tostring(GetPlayerInvincible(PlayerId())), GetPedArmour(me)))
+    if before == after then
+        print('[combat_drone] You are NOT taking damage. Turn off godmode (admin menu / txAdmin) and retest.')
+    else
+        print('[combat_drone] Damage works on you, so drone bullets will land too.')
+    end
+end, false)
+
+-- =============================================================================
+-- /dronediag -- one command that exercises every link independently
+-- =============================================================================
+-- The warning HUD, the siren and the gun each depend on a different chain
+-- (NUI page / server relay / weapon streaming), and when one is broken the
+-- others look broken too. This drives each one directly, bypassing the AI, so
+-- the failing link identifies itself instead of having to be guessed at.
+RegisterCommand('dronediag', function()
+    print('[combat_drone] ===== DIAGNOSTIC =====')
+
+    -- 0. Did every module even load? Everything below indexes them, so this has
+    --    to come first -- otherwise the diagnostic itself dies on a nil global,
+    --    which is exactly what it exists to explain.
+    if #MissingModules > 0 then
+        print('[combat_drone] 0/4 modules: FAILED')
+        ReportMissingModules()
+        return
+    end
+    print('[combat_drone] 0/4 modules: all loaded.')
+
+    -- 1. NUI. If the page never loaded, SendNUIMessage is a silent no-op and
+    --    BOTH the countdown and the siren die with it.
+    print(('[combat_drone] 1/4 NUI page: %s'):format(Audio.nuiState))
+    if not Audio.nuiReady then
+        print('             ^ THIS IS THE PROBLEM. The NUI page never loaded, so the countdown and')
+        print('               the siren can never appear. Adding ui_page to a resource needs a full')
+        print('               "restart vl_combat_drone" on the server AND a client reconnect --')
+        print('               a refresh/ensure on an already-running resource is not enough.')
+    end
+    print('             Showing a test countdown and playing the alert now...')
+    SendNUIMessage({
+        action = 'warn_show',
+        remaining = 8000, duration = 8000,
+        message = Config.Warning.message,
+        sub = 'DIAGNOSTIC TEST -- NOT A REAL DRONE',
+        tag = Config.Warning.tag,
+    })
+    SendNUIMessage({
+        action = 'sound_start', id = 'diag', src = Config.Alert.sound,
+        volume = Config.Alert.volume, loop = true,
+        refDistance = Config.Alert.refDistance, maxDistance = Config.Alert.maxDistance,
+        rolloff = Config.Alert.rolloff,
+    })
+    SendNUIMessage({ action = 'sound_pos', id = 'diag', x = 0.0, y = 0.0, z = -6.0 })
+    CreateThread(function()
+        Wait(4000)
+        SendNUIMessage({ action = 'sound_stop', id = 'diag', fade = 300 })
+        SendNUIMessage({ action = 'warn_hide' })
+        print('[combat_drone] NUI test finished.')
+    end)
+
+    -- 2. Weapon streaming. An unloaded asset fires no bullet at all.
+    local pref = Config.Weapon.fireMethod == 'vehicle' and Config.Weapon.vehicle.weapon or Config.Weapon.hash
+    print(('[combat_drone] 2/4 weapon: mode=%s preferred=%s loaded=%s | vehFallback loaded=%s | stock loaded=%s')
+        :format(Config.Weapon.fireMethod, tostring(pref),
+                tostring(HasWeaponAssetLoaded(pref)),
+                tostring(HasWeaponAssetLoaded(Config.Weapon.vehicle.fallbackWeapon)),
+                tostring(HasWeaponAssetLoaded(Config.Weapon.fallbackHash))))
+    print(('             last weapon actually fired: %s'):format(tostring(Combat.weaponInUse)))
+    print(('             airstrike: enabled=%s rocket loaded=%s fallback loaded=%s missilesFired=%d')
+        :format(tostring(Config.Strike.enabled),
+                tostring(HasWeaponAssetLoaded(Config.Strike.weapon)),
+                tostring(HasWeaponAssetLoaded(Config.Strike.fallbackWeapon)),
+                Strike.missilesFired or 0))
+
+    -- 3. Per-drone AI state. A drone stuck in PATROL never saw you at all;
+    --    a drone in WARNING is working and simply hasn't run out of time yet.
+    local n = 0
+    for ped, drone in pairs(ActiveDrones) do
+        n = n + 1
+        local target = drone.target
+        local mem = target and drone.knownTargets[target]
+        local me = PlayerPedId()
+        local flyer = Utils.Flyer(drone)
+        print(('[combat_drone] 3/4 drone %s: state=%s target=%s visible=%s dist=%s')
+            :format(tostring(ped), drone.state, tostring(target),
+                    mem and tostring(mem.isVisible) or 'n/a',
+                    mem and string.format('%.1f', mem.distance or -1) or 'n/a'))
+        print(('             distToYou=%.1f detectRadius=%.1f los=%s inFov=%s')
+            :format(Utils.Vdist(GetEntityCoords(flyer), GetEntityCoords(me)),
+                    Config.Detection.radius,
+                    tostring(Utils.HasLineOfSightToEntity(flyer, me)),
+                    tostring(math.abs(Utils.AngleToPointDeg(GetEntityCoords(flyer),
+                        GetEntityForwardVector(flyer), GetEntityCoords(me))) <= Config.Detection.fov / 2.0)))
+        local started = drone.warnStartedAt and drone.warnStartedAt[GetPlayerServerId(PlayerId())]
+        print(('             warning=%s countdownElapsed=%s (fires at %dms)')
+            :format(drone.warning and ('player ' .. drone.warning.serverId) or 'none',
+                    started and (GetGameTimer() - started) .. 'ms' or 'not started',
+                    Config.Warning.duration + Config.Warning.localGrace))
+    end
+    if n == 0 then
+        print('[combat_drone] 3/4 this client is not simulating any drone (none spawned, or another client owns it).')
+    end
+
+    -- 4. Can you even be damaged? If not, nothing above matters.
+    local me = PlayerPedId()
+    print(('[combat_drone] 4/4 you: health=%d armour=%d invincible=%s serverId=%d')
+        :format(GetEntityHealth(me), GetPedArmour(me),
+                tostring(GetPlayerInvincible(PlayerId())), GetPlayerServerId(PlayerId())))
+    print('[combat_drone] ===== END =====')
+end, false)
+
+-- Calls an airstrike on yourself immediately, with no drone and no countdown
+-- involved, so the rockets/markers can be verified on their own.
+RegisterCommand('dronestrike', function()
+    if #MissingModules > 0 then ReportMissingModules() return end
+    if not Config.Strike.enabled then
+        print('[combat_drone] Config.Strike.enabled is false -- the drone guns targets down itself instead.')
+        return
+    end
+    Strike.ClearCooldown(GetPlayerServerId(PlayerId()))
+    Strike.Call(nil, PlayerPedId())
+    print(('[combat_drone] strike called on you: %d missiles, first impact in ~%dms.')
+        :format(Config.Strike.count, Config.Strike.delay + Config.Strike.markerLeadTime))
+end, false)
+
+-- Skips the countdown entirely and makes every locally-simulated drone treat
+-- you as already warned, so the combat path can be tested on its own.
+RegisterCommand('droneengage', function()
+    local serverId = GetPlayerServerId(PlayerId())
+    TriggerEvent('combat_drone:flagPlayer', serverId, Config.Warning.flagDuration)
+    print(('[combat_drone] flagged you (%d) as non-compliant for %dms -- drones will now engage on sight.')
+        :format(serverId, Config.Warning.flagDuration))
+end, false)
+
+-- Ask the server for any drones that already existed before this client connected.
+CreateThread(function()
+    Wait(2000)
+    TriggerServerEvent('combat_drone:requestRegistry')
+end)
+
+-- =============================================================================
+-- DAMAGE REACTIVITY
+-- =============================================================================
+
+AddEventHandler('gameEventTriggered', function(name, args)
+    if name ~= 'CEventNetworkEntityDamage' then return end
+
+    local victim, attacker, isFatal = args[1], args[2], args[4]
+    -- Covers both the ped and (in piloted mode) the vehicle hull, since either
+    -- can be what the player actually shot.
+    local drone = KnownDronesByPed[victim]
+    if not drone then return end
+    if not NetworkHasControlOfEntity(drone.ped) then return end -- only the controlling client reacts
+
+    if attacker and attacker ~= 0 and DoesEntityExist(attacker) then
+        StateMachine.OnDamaged(drone, attacker)
+    end
+
+    if isFatal == 1 or IsEntityDead(drone.ped) or (drone.vehicle and IsEntityDead(drone.vehicle)) then
+        drone.state = 'DESTROYED'
+    end
+end)
+
+-- =============================================================================
+-- RESOURCE STOP CLEANUP
+-- =============================================================================
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if GetCurrentResourceName() ~= resourceName then return end
+    Visual.CleanupAll() -- local shells always die with the resource, even ones we don't control
+    for _, drone in pairs(KnownDronesByNetId) do
+        if drone.vehicle and DoesEntityExist(drone.vehicle) and NetworkHasControlOfEntity(drone.vehicle) then
+            DeleteEntity(drone.vehicle)
+        end
+        if DoesEntityExist(drone.ped) and NetworkHasControlOfEntity(drone.ped) then
+            DeleteEntity(drone.ped)
+        end
+    end
+end)

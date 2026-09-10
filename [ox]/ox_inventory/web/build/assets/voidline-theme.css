@@ -1,0 +1,613 @@
+/* =============================================================================
+   VOIDLINE — ox_inventory survival theme
+
+   A pure presentation layer. It is loaded AFTER ox_inventory's own index.css
+   and only overrides appearance: no layout logic, no behaviour, no JS. The
+   React bundle (assets/index.js) is untouched, so drag & drop, splitting,
+   containers, weapons, metadata and the weight system all behave exactly as
+   shipped.
+
+   HOW TO RETUNE
+   Everything is driven by the tokens in :root below. Change --vl-accent to
+   re-skin the whole UI; change --vl-slot-w / --vl-slot-h to resize the grid (the
+   container height is derived from it, so rows stay aligned automatically).
+
+   HOW TO REMOVE
+   Delete the <link> to this file in ../index.html. Nothing else references it.
+
+   NOTE ON UPDATES
+   ox_inventory ships a compiled bundle with no web/src, so this is a theme
+   layer rather than a fork. Updating ox_inventory replaces web/build and will
+   drop both this file and the <link> — keep a copy.
+   ========================================================================== */
+
+:root {
+    /* -- surfaces: the requested black/grey ladder, no blue cast ---------- */
+    --vl-void:        #000000;   /* deepest background                       */
+    --vl-panel:       #0a0a0a;   /* panel body                               */
+    --vl-panel-top:   #171717;   /* panel highlight, top-lit                 */
+    --vl-slot-bg:     #0a0a0a;   /* empty cell                               */
+    --vl-slot-fill:   #111111;   /* occupied cell                            */
+
+    /* -- edges ------------------------------------------------------------ */
+    --vl-edge:        #202020;   /* default hairline                         */
+    --vl-edge-soft:   #171717;   /* interior dividers                        */
+    --vl-edge-hi:     #2e2e2e;   /* hover / raised                           */
+
+    /* -- accent: muted brass, not neon ------------------------------------ */
+    --vl-accent:      #b8933c;
+    --vl-accent-hi:   #e0b44f;
+    --vl-accent-dim:  rgba(184, 147, 60, 0.30);
+
+    /* -- type ------------------------------------------------------------- */
+    --vl-text:        #c6cac6;
+    --vl-text-dim:    rgba(198, 202, 198, 0.46);
+    --vl-text-faint:  rgba(198, 202, 198, 0.24);
+    --vl-danger:      #9c4034;
+
+    --vl-font-display: 'Bahnschrift Condensed', 'Bahnschrift', 'Oswald',
+                       'Arial Narrow', 'Franklin Gothic Medium', sans-serif;
+    --vl-font-mono:    'Consolas', 'Cascadia Mono', 'Lucida Console',
+                       'Courier New', monospace;
+    --vl-font-body:    'Segoe UI', Roboto, system-ui, sans-serif;
+
+    /* -- metrics ---------------------------------------------------------- */
+    /* vh-based so the grid scales with the client's resolution instead of
+       being pinned to pixels. Works at 1080p, 1440p, 4K and ultrawide. */
+    /* Cells are wider than they are tall and sized from viewport WIDTH, which
+       is what makes a survival grid read as rows of shelves rather than a
+       checkerboard. The px clamps stop them ballooning on ultrawide, where a
+       raw vw value would overflow ox's fixed 5-column grid. */
+    --vl-slot-w:      clamp(62px, 5.0vw, 116px);
+    --vl-slot-h:      clamp(56px, 4.5vw, 104px);
+    /* Icon deliberately floats with margin around it instead of filling the
+       cell -- the empty space is what makes items read as objects in a box. */
+    --vl-icon-size:   62%;
+    /* Asymmetric on purpose: columns breathe, rows stay tight. */
+    --vl-gap-col:     6px;
+    --vl-gap-row:     3px;
+    --vl-radius:      3px;
+}
+
+/* =============================================================================
+   BASE
+   ========================================================================== */
+
+body {
+    font-family: var(--vl-font-body);
+}
+
+.app-wrapper {
+    color: var(--vl-text);
+}
+
+/* =============================================================================
+   LAYOUT — player panel | controls | container panel
+   ========================================================================== */
+
+/* Full-screen presence rather than a floating popup: the world dims hard behind
+   the panels, with a faint industrial weave so the void is not flat. */
+.inventory-wrapper {
+    gap: clamp(14px, 2.2vw, 42px);
+    background:
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.008) 0 1px, rgba(0,0,0,0) 1px 6px),
+        radial-gradient(72% 68% at 50% 50%, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.92) 55%, rgba(0,0,0,0.97) 100%);
+}
+
+/* =============================================================================
+   CHARACTER COLUMN — DayZ-style survivor between the two inventories
+
+   Built as .inventory-wrapper::before rather than injected DOM. A pseudo
+   element on a flex container IS a flex item, so it takes its place in the row
+   without React ever knowing it exists — nothing to reconcile, nothing to leak,
+   and no risk to drag & drop.
+
+   It is PRESENTATIONAL. ox_inventory has no equipment or clothing state, so
+   this figure deliberately carries no slots and claims no data. Real backpack
+   storage is not faked here: opening a backpack container loads it into the
+   right-hand panel, which is genuine ox behaviour.
+   ========================================================================== */
+
+.inventory-wrapper::before {
+    content: "";
+    order: 2;
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: clamp(150px, 15vw, 260px);
+    background-color: transparent;
+    background-repeat: no-repeat;
+    background-position: center 44%;
+    background-size: auto 54%;
+    /* Original mannequin: survivor wearing a pack. Grey on black with a low
+       opacity outline — it must sit behind the inventories, not compete with
+       them. Deliberately no gold: the accent is reserved for interaction. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 240'%3E%3Cg stroke='%234a4a4a' stroke-opacity='.65' stroke-width='1.2' stroke-linejoin='round'%3E%3Crect x='26' y='60' width='48' height='58' rx='8' fill='%230f0f0f'/%3E%3Cellipse cx='50' cy='24' rx='11' ry='13' fill='%231b1b1b'/%3E%3Crect x='45' y='35' width='10' height='10' fill='%23171717'/%3E%3Cpath d='M34 46h32l5 12-3 60H32l-3-60z' fill='%231b1b1b'/%3E%3Cpath d='M41 47l4 60M59 47l-4 60' fill='none' stroke-opacity='.3'/%3E%3Cpath d='M34 48l-9 8-4 54 8 2 8-50z' fill='%23181818'/%3E%3Cpath d='M66 48l9 8 4 54-8 2-8-50z' fill='%23181818'/%3E%3Cpath d='M36 118h13v46l-2 44H36l1-44z' fill='%23181818'/%3E%3Cpath d='M64 118H51v46l2 44h11l-1-44z' fill='%23181818'/%3E%3Crect x='34' y='206' width='14' height='9' rx='2' fill='%230c0c0c'/%3E%3Crect x='52' y='206' width='14' height='9' rx='2' fill='%230c0c0c'/%3E%3C/g%3E%3C/svg%3E");
+    opacity: 0.8;
+    pointer-events: none;
+}
+
+/* Row order: PLAYER | SURVIVOR | controls | CONTAINER / GROUND */
+.inventory-wrapper > .inventory-grid-wrapper:first-of-type { order: 1; }
+.inventory-control { order: 3; }
+.inventory-wrapper > .inventory-grid-wrapper:last-of-type  { order: 4; }
+/* With no container open there is only one grid; keep it left of the figure. */
+.inventory-wrapper > .inventory-grid-wrapper:only-of-type   { order: 1; }
+
+@media (max-width: 1500px) {
+    .inventory-wrapper::before { width: clamp(110px, 11vw, 170px); background-size: auto 54%; }
+}
+
+/* Each inventory becomes a physical panel rather than a floating grid. */
+.inventory-grid-wrapper {
+    gap: 0;
+    padding: 10px 10px 12px;
+    background:
+        linear-gradient(180deg, var(--vl-panel-top) 0%, var(--vl-panel) 42%, var(--vl-void) 100%);
+    border: 1px solid var(--vl-edge);
+    border-radius: var(--vl-radius);
+    box-shadow:
+        0 18px 44px rgba(0,0,0,0.72),
+        inset 0 1px 0 rgba(255,255,255,0.045),
+        inset 0 0 40px rgba(0,0,0,0.55);
+    position: relative;
+}
+
+/* stencilled corner ticks — tactical detail, costs no DOM */
+.inventory-grid-wrapper::before,
+.inventory-grid-wrapper::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--vl-accent);
+    opacity: 0.55;
+    pointer-events: none;
+}
+.inventory-grid-wrapper::before { top: 3px; left: 3px;  border-right: 0; border-bottom: 0; }
+.inventory-grid-wrapper::after  { bottom: 3px; right: 3px; border-left: 0;  border-top: 0; }
+
+/* =============================================================================
+   PANEL HEADER — label + weight readout + capacity bar
+   ========================================================================== */
+
+.inventory-grid-header-wrapper {
+    align-items: baseline;
+    padding: 0 2px 7px;
+    margin-bottom: 7px;
+    border-bottom: 1px solid var(--vl-edge-soft);
+}
+
+/* first <p> is the inventory label, second is the weight readout */
+.inventory-grid-header-wrapper p:first-child {
+    font-family: var(--vl-font-display);
+    font-size: clamp(13px, 1.05vw, 19px) !important;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    color: var(--vl-text);
+}
+
+.inventory-grid-header-wrapper p:last-child {
+    font-family: var(--vl-font-mono);
+    font-size: clamp(10px, 0.72vw, 13px) !important;
+    letter-spacing: 0.06em;
+    color: var(--vl-text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Capacity bar: segmented, like a fuel gauge. The fill colour is set inline by
+   ox_inventory (green -> red as you fill up) and is deliberately left alone —
+   it is real information, not decoration. */
+.weight-bar {
+    height: 5px !important;
+    border: 1px solid var(--vl-edge) !important;
+    border-radius: 0 !important;
+    background: #07080a !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.9);
+    position: relative;
+    margin-bottom: 9px;
+}
+
+.weight-bar::after {
+    /* tick marks over the bar */
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(90deg,
+        rgba(0,0,0,0) 0 9px, rgba(0,0,0,0.85) 9px 10px);
+}
+
+.weight-bar > div {
+    filter: saturate(0.75) brightness(0.92);
+}
+
+/* =============================================================================
+   GRID
+   ========================================================================== */
+
+.inventory-grid-container {
+    grid-template-columns: repeat(5, var(--vl-slot-w)) !important;
+    grid-auto-rows: var(--vl-slot-h) !important;
+    column-gap: var(--vl-gap-col) !important;
+    row-gap: var(--vl-gap-row) !important;
+    /* derived from the tokens so rows always align: 5 rows + 4 gaps */
+    height: calc(var(--vl-slot-h) * 5 + var(--vl-gap-row) * 4) !important;
+    padding: 2px;
+    background:
+        linear-gradient(180deg, rgba(0,0,0,0.4), rgba(0,0,0,0.15)),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 2px, rgba(0,0,0,0) 2px 5px);
+    border: 1px solid var(--vl-edge-soft);
+}
+
+/* =============================================================================
+   SLOTS
+   Base rule is the EMPTY cell. Occupied cells are painted by
+   .item-slot-wrapper, which ox only renders when a slot holds an item — that
+   avoids depending on :has() or on inline-style attribute matching, neither of
+   which is safe across CEF versions.
+   ========================================================================== */
+
+.inventory-slot,
+.item-notification-item-box,
+.hotbar-item-slot {
+    background-color: var(--vl-slot-bg) !important;
+    background-size: var(--vl-icon-size) !important;
+    border: 1px solid var(--vl-edge-soft) !important;
+    border-radius: var(--vl-radius) !important;
+    box-shadow:
+        inset 0 0 12px rgba(0,0,0,0.75),
+        inset 0 1px 0 rgba(255,255,255,0.02);
+    transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+
+/* occupied */
+.inventory-slot .item-slot-wrapper {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0) 38%),
+        linear-gradient(180deg, rgba(20,24,25,0.55) 0%, rgba(8,9,10,0.35) 100%);
+    box-shadow: inset 0 0 0 1px rgba(184, 147, 60, 0.13);
+    border-radius: var(--vl-radius);
+}
+
+.inventory-slot:hover {
+    border-color: var(--vl-accent) !important;
+    background-color: var(--vl-slot-fill) !important;
+    box-shadow:
+        inset 0 0 16px rgba(0,0,0,0.6),
+        0 0 0 1px var(--vl-accent-dim),
+        0 0 14px rgba(184, 147, 60, 0.18);
+}
+
+/* while dragging, the source cell reads as lifted out */
+body.inv-dragging .inventory-slot { border-color: var(--vl-edge-soft) !important; }
+
+.item-drag-preview {
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.85)) brightness(1.06);
+    background-size: var(--vl-icon-size) !important;
+}
+
+/* -- slot furniture ------------------------------------------------------- */
+
+/* hotbar key badge (slots 1-5) */
+.inventory-slot-number {
+    color: var(--vl-accent-hi) !important;
+    background: linear-gradient(180deg, #1b1f22, #0c0e10) !important;
+    border-right: 1px solid var(--vl-edge);
+    border-bottom: 1px solid var(--vl-edge);
+    border-radius: var(--vl-radius) 0 var(--vl-radius) 0 !important;
+    font-family: var(--vl-font-mono) !important;
+    font-size: 11px !important;
+    font-weight: 700;
+    height: auto !important;
+    padding: 2px 5px !important;
+    letter-spacing: 0.04em;
+}
+
+/* Quantity and weight sit in opposite top corners rather than bunched
+   together -- it reads far less cluttered at small cell sizes. row-reverse
+   because ox emits weight first, and we want the count on the left. */
+/* Deliberately NOT position:absolute. .item-slot-wrapper is a flex column with
+   justify-content:space-between, so pulling this header out of the flow leaves
+   a single in-flow child, which space-between then pins to the TOP -- sending
+   the item name bar to the top of the cell instead of the bottom. Widening the
+   row in place gets the same corner split with none of that. */
+.item-slot-header-wrapper {
+    align-self: stretch;
+}
+.item-slot-header-wrapper .item-slot-info-wrapper {
+    flex-direction: row-reverse;
+    justify-content: space-between;
+    width: 100%;
+    padding: 3px 4px !important;
+}
+
+.item-slot-info-wrapper p {
+    font-family: var(--vl-font-mono) !important;
+    font-size: 9px !important;
+    line-height: 1.1;
+    font-weight: 700;
+    color: #b9b9b9;
+    text-shadow: 0 1px 3px rgba(0,0,0,1);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* The count is the number players actually read; weight is reference. When the
+   cell gets small there is not room for both in opposite corners without them
+   colliding, so the weight drops out first rather than overlapping. */
+@media (max-width: 1700px), (max-height: 900px) {
+    .item-slot-header-wrapper .item-slot-info-wrapper p:first-child { display: none; }
+    .item-slot-info-wrapper p { font-size: 8.5px !important; }
+}
+
+/* Item name: translucent strip, not an opaque bar. Keeping the cell visible
+   behind it is what stops the grid looking like a stack of buttons. */
+.inventory-slot-label-box {
+    background: rgba(20, 20, 20, 0.62) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.09) !important;
+    border-radius: 0 0 var(--vl-radius) var(--vl-radius) !important;
+}
+
+.inventory-slot-label-text {
+    font-family: var(--vl-font-body) !important;
+    font-size: 9.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em;
+    text-align: center;
+    text-transform: none !important;
+    color: #dcdcdc;
+    text-shadow: 0 1px 3px rgba(0,0,0,1);
+    padding: 2px 3px !important;
+}
+
+/* condition bar. The fill colour is ox_inventory's (green -> red by
+   durability) and stays as-is: it is the only at-a-glance condition signal. */
+.durability-bar {
+    height: 4px !important;
+    background: #07080a !important;
+    border-top: 1px solid rgba(0,0,0,0.9);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.9);
+}
+.durability-bar > div { filter: saturate(0.8) brightness(0.95); }
+
+/* currency / price overlays used by shops */
+.item-slot-currency-wrapper p,
+.item-slot-price-wrapper p {
+    font-family: var(--vl-font-mono) !important;
+    font-size: 12px !important;
+    color: var(--vl-accent-hi);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.95) !important;
+}
+
+/* =============================================================================
+   CONTROL COLUMN — quantity field + Use / Give / Close
+   ========================================================================== */
+
+.inventory-control .inventory-control-wrapper {
+    gap: 8px;
+    padding: 12px 10px;
+    background: linear-gradient(180deg, var(--vl-panel-top), var(--vl-void));
+    border: 1px solid var(--vl-edge);
+    border-radius: var(--vl-radius);
+    box-shadow: 0 14px 32px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.inventory-control .inventory-control-input {
+    background: #07080a !important;
+    border: 1px solid var(--vl-edge) !important;
+    border-radius: var(--vl-radius) !important;
+    color: var(--vl-text) !important;
+    font-family: var(--vl-font-mono) !important;
+    font-size: 15px !important;
+    padding: 10px 8px !important;
+    letter-spacing: 0.08em;
+}
+.inventory-control .inventory-control-input:focus-within,
+.inventory-control .inventory-control-input:focus {
+    border-color: var(--vl-accent) !important;
+    background: #0b0d0f !important;
+    box-shadow: 0 0 0 1px var(--vl-accent-dim), inset 0 0 10px rgba(0,0,0,0.8);
+}
+
+.inventory-control .inventory-control-button {
+    background: linear-gradient(180deg, #1a1e21, #0e1113) !important;
+    border: 1px solid var(--vl-edge) !important;
+    border-radius: var(--vl-radius) !important;
+    color: var(--vl-text) !important;
+    font-family: var(--vl-font-display) !important;
+    font-size: 13px !important;
+    letter-spacing: 0.22em;
+    padding: 10px 8px !important;
+}
+.inventory-control .inventory-control-button:hover {
+    background: linear-gradient(180deg, #23282c, #131719) !important;
+    border-color: var(--vl-accent) !important;
+    color: var(--vl-accent-hi) !important;
+}
+
+/* =============================================================================
+   HOTBAR
+   ========================================================================== */
+
+.hotbar-container { gap: var(--vl-gap-col); bottom: 2.4vh; }
+
+.hotbar-item-slot {
+    width: var(--vl-slot-w) !important;
+    height: var(--vl-slot-h) !important;
+}
+
+/* =============================================================================
+   TOOLTIP — the item information panel
+   ========================================================================== */
+
+.tooltip-wrapper {
+    width: 254px !important;
+    min-width: 254px !important;
+    padding: 0 !important;
+    background: linear-gradient(180deg, var(--vl-panel-top) 0%, var(--vl-panel) 40%, var(--vl-void) 100%) !important;
+    border: 1px solid var(--vl-edge-hi) !important;
+    border-radius: var(--vl-radius) !important;
+    box-shadow: 0 20px 46px rgba(0,0,0,0.82), inset 0 1px 0 rgba(255,255,255,0.05);
+    color: var(--vl-text) !important;
+    font-family: var(--vl-font-body) !important;
+    overflow: hidden;
+}
+
+/* accent rule across the top of the card */
+.tooltip-wrapper::before {
+    content: "";
+    display: block;
+    height: 2px;
+    background: linear-gradient(90deg, var(--vl-accent) 0%, rgba(184,147,60,0.15) 100%);
+}
+
+.tooltip-header-wrapper {
+    padding: 9px 11px 8px;
+    border-bottom: 1px solid var(--vl-edge-soft);
+    background: rgba(0,0,0,0.28);
+}
+.tooltip-header-wrapper p:first-child {
+    font-family: var(--vl-font-display) !important;
+    font-size: 16px !important;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--vl-text) !important;
+}
+.tooltip-header-wrapper p:last-child {
+    font-family: var(--vl-font-mono) !important;
+    font-size: 11px !important;
+    color: var(--vl-accent-hi) !important;
+}
+
+/* body: description, metadata rows, ingredients */
+.tooltip-wrapper > *:not(.tooltip-header-wrapper) { padding-left: 11px; padding-right: 11px; }
+.tooltip-wrapper p { font-size: 11.5px !important; line-height: 1.55; color: var(--vl-text-dim); }
+.tooltip-description { padding-top: 8px !important; padding-bottom: 9px; }
+.tooltip-markdown > p { color: var(--vl-text-dim); }
+
+.tooltip-crafting-duration p { font-family: var(--vl-font-mono) !important; color: var(--vl-accent-hi) !important; }
+.tooltip-ingredients { padding-top: 8px !important; padding-bottom: 10px; border-top: 1px solid var(--vl-edge-soft); }
+.tooltip-ingredient img { filter: drop-shadow(0 2px 3px rgba(0,0,0,0.8)); }
+
+/* =============================================================================
+   CONTEXT MENU
+   ========================================================================== */
+
+.context-menu-list {
+    background: linear-gradient(180deg, var(--vl-panel-top), var(--vl-void)) !important;
+    border: 1px solid var(--vl-edge-hi) !important;
+    border-radius: var(--vl-radius) !important;
+    box-shadow: 0 16px 36px rgba(0,0,0,0.8);
+    padding: 3px !important;
+    color: var(--vl-text) !important;
+}
+.context-menu-item {
+    color: var(--vl-text) !important;
+    border-radius: var(--vl-radius) !important;
+    font-family: var(--vl-font-body);
+    font-size: 12.5px;
+    letter-spacing: 0.05em;
+    padding: 8px 10px !important;
+    border-left: 2px solid transparent !important;
+}
+.context-menu-item:hover {
+    background: #1c2126 !important;
+    border-left-color: var(--vl-accent) !important;
+    color: var(--vl-accent-hi) !important;
+}
+
+/* =============================================================================
+   ITEM PICKUP NOTIFICATIONS
+   ========================================================================== */
+
+/* Reference-style pickup card: a hard accent bar on the left edge, black body,
+   condensed caps. Reads as a log entry, not a toast. */
+.item-notification-action-box {
+    background: #0a0a0a !important;
+    border: 1px solid var(--vl-edge) !important;
+    border-left: 2px solid var(--vl-accent) !important;
+    border-bottom: 0 !important;
+    border-radius: 0 !important;
+    color: var(--vl-accent-hi) !important;
+    font-family: var(--vl-font-display) !important;
+    text-align: left !important;
+}
+.item-notification-action-box p {
+    font-size: 10px !important;
+    letter-spacing: 0.18em;
+    padding: 3px 6px !important;
+}
+
+.item-notification-item-box { border-left: 2px solid var(--vl-edge) !important; }
+
+/* =============================================================================
+   SELECTED / ACTIVE — subtle but unmistakable, accent used sparingly
+   ========================================================================== */
+
+.inventory-slot:active,
+.inventory-slot:focus-within {
+    border-color: var(--vl-accent-hi) !important;
+    box-shadow:
+        inset 0 0 0 1px rgba(224, 180, 79, 0.35),
+        inset 0 0 18px rgba(0,0,0,0.7),
+        0 0 12px rgba(184, 147, 60, 0.22);
+}
+
+/* Overweight is a real state ox exposes via the inline bar colour; make the
+   whole capacity gauge read as an alarm when the fill turns red. */
+.weight-bar > div[style*="rgb(192"],
+.weight-bar > div[style*="rgb(193"],
+.weight-bar > div[style*="rgb(194"] {
+    box-shadow: 0 0 8px rgba(156, 64, 52, 0.75);
+}
+
+/* =============================================================================
+   HELP DIALOG + FLOATING BUTTON
+   ========================================================================== */
+
+.useful-controls-dialog {
+    background: linear-gradient(180deg, var(--vl-panel-top), var(--vl-void)) !important;
+    border: 1px solid var(--vl-edge-hi);
+    border-radius: var(--vl-radius) !important;
+    color: var(--vl-text) !important;
+}
+.useful-controls-dialog-title {
+    font-family: var(--vl-font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+.useful-controls-dialog-close:hover { background: #1c2126 !important; }
+.divider { background: var(--vl-edge) !important; }
+
+.useful-controls-button {
+    background: linear-gradient(180deg, #1a1e21, #0c0e10) !important;
+    border: 1px solid var(--vl-edge) !important;
+    border-radius: var(--vl-radius) !important;
+}
+.useful-controls-button:hover {
+    border-color: var(--vl-accent) !important;
+    background: linear-gradient(180deg, #23282c, #131719) !important;
+}
+
+/* =============================================================================
+   RESPONSIVE
+   The grid is vh-driven, so it already tracks resolution. These only stop the
+   cells getting silly on very short or very tall viewports.
+   ========================================================================== */
+
+/* Slots are width-driven, so the only real risk is a short viewport: five rows
+   plus the panel chrome must still fit vertically at 720p. */
+@media (max-height: 800px) {
+    :root {
+        --vl-slot-w: clamp(54px, 4.2vw, 84px);
+        --vl-slot-h: clamp(48px, 3.8vw, 76px);
+        --vl-gap-row: 2px;
+    }
+    .inventory-grid-wrapper { padding: 8px 8px 10px; }
+    .inventory-slot-label-text { font-size: 8.5px !important; }
+}
+
+/* Ultrawide: keep the two panels from drifting to the far edges of the screen */
+@media (min-aspect-ratio: 21/9) {
+    .inventory-wrapper { gap: clamp(18px, 1.4vw, 34px); }
+}

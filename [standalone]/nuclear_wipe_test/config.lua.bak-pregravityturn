@@ -1,0 +1,94 @@
+Config = {}
+
+-- Test command
+Config.Command = 'nuclearwipe'
+Config.ResetCommand = 'nuclearreset'
+
+-- Missile model
+Config.MissileModel = 'xm_prop_x17_silo_rocket_01'
+
+-- Launch point: offshore / underwater
+-- Change these coordinates later to match the exact launch location you want.
+Config.LaunchCoords = vec3(3164.41, -4596.79, -61.99)
+
+-- Target: central Los Santos / Legion Square area
+Config.TargetCoords = vec3(176.38, -971.3, 28.61)
+
+-- Event timing in seconds
+Config.RiseDuration = 14.0
+-- Cruise is ~5.5 km. At the old 35 s that was ~157 m/s, which reads as a dart
+-- rather than a ballistic missile; 110 s puts it near 50 m/s so it is genuinely
+-- watchable and the arc has time to sell itself.
+Config.FlightDuration = 110.0
+Config.DescentDuration = 16.0
+Config.ImpactRadius = 250.0
+
+-- ─── FLIGHT PATH ────────────────────────────────────────────────────────────
+
+-- Apogee above the launch/target line, in metres.
+Config.ArcHeight = 900.0
+
+-- The cruise ends HERE rather than at the target -- directly above it, at this
+-- altitude -- and the descent runs from this point down. Previously the cruise
+-- ended exactly on the target and the descent then interpolated the target to
+-- itself, so the missile hung motionless over the city for the whole descent.
+Config.ApproachAltitude = 420.0
+
+-- The nose axis of Config.MissileModel, in degrees of pitch offset.
+--
+-- xm_prop_x17_silo_rocket_01 is modelled standing upright, nose along +Z, so
+-- zero pitch means "pointing straight up" -- which is why the old code flew it
+-- vertically the whole way. 90 converts the aiming maths from "elevation above
+-- horizontal" into the model's own frame. Use 0 for a model built nose-forward.
+Config.MissilePitchOffset = 90.0
+
+-- Missile visual tuning
+Config.MissileScale = 1.0
+
+-- ─── EXHAUST ────────────────────────────────────────────────────────────────
+
+-- Particles attached to the missile's tail. Tried in order; each entry that
+-- produces a handle is kept, so listing several gives fire AND smoke together.
+-- An effect this build does not have is skipped rather than erroring.
+--
+-- offsetZ is along the MODEL's own axis. The rocket is ~11 m nose-to-tail and
+-- its origin sits mid-body, so the tail is roughly -6. The old value of -1.5
+-- put the exhaust inside the fuselage.
+Config.TrailEffects = {
+    { asset = 'core', name = 'exp_grd_rpg_trail',       offsetZ = -6.0, scale = 3.0 },
+    { asset = 'core', name = 'fire_wrecked_plane_cockpit', offsetZ = -5.2, scale = 2.2 },
+    { asset = 'core', name = 'ent_amb_smoke_foundry',   offsetZ = -7.5, scale = 4.0 },
+}
+
+-- Fallbacks if none of the above load on this build.
+Config.TrailFallbacks = {
+    { asset = 'core', name = 'exp_grd_bzgas_smoke', offsetZ = -6.0, scale = 3.0 },
+    { asset = 'core', name = 'ent_sht_steam',       offsetZ = -6.0, scale = 3.0 },
+}
+
+-- Aftermath
+Config.AftermathWeather = 'HALLOWEEN'
+Config.AftermathTime = 0 -- 00:00
+Config.AftermathDuration = 300 -- 5 minutes
+
+-- Player effects
+Config.PlayerDamage = 35
+Config.PlayerEffectRadius = 250.0
+Config.PlayerRagdollRadius = 100.0
+Config.ShakeDuration = 12000
+
+-- Explosion tuning. Multiple explosions/effects make it feel much larger than
+-- a single GTA explosion.
+Config.ExplosionType = 29
+Config.ExplosionDamageScale = 3.0
+Config.ExplosionAudible = true
+Config.ExplosionInvisible = false
+
+-- Set false while testing if you only want to see the missile.
+Config.EnableGlobalWeather = true
+Config.EnablePlayerEffects = true
+Config.EnableExplosion = true
+Config.EnableFireRing = true
+
+-- Debug messages
+Config.Debug = true

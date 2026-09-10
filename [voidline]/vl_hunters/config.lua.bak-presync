@@ -1,0 +1,83 @@
+-- =============================================================================
+-- vl_hunters
+--
+-- Hostile groups that spawn around the player and patrol on foot.
+--
+-- ENTIRELY CLIENT-SIDE, deliberately. A server-spawned ped is a networked
+-- entity: every one costs an entity slot for everybody, has to be culled by the
+-- server, and leaves orphans behind whenever a client times out. These are
+-- scenery with teeth -- each player spawns their own around themselves and
+-- deletes them again when they walk away. Two players in the same street see
+-- different ones, which is the trade.
+--
+-- PACKS
+--
+-- Everything below is a list of packs rather than one hardcoded enemy, so a new
+-- group is a config entry and no code. Each pack keeps its own population,
+-- distances and behaviour.
+--
+-- Only one pack ships now. The structure is kept because it costs nothing and
+-- a second group is a copy of the block below with different numbers --
+-- `useRoadNodes = false` in particular spawns a pack off the road network, in
+-- yards and alleys, which is how a close-range group would be placed.
+-- =============================================================================
+
+VLHunters = {}
+
+VLHunters.enabled = true
+
+-- Print each spawn/despawn and each failed spawn cycle. Left ON: this resource
+-- does its work out of sight by design, so with it off there is no way to tell
+-- "not spawning" from "spawning behind you".
+VLHunters.debug = true
+
+-- Shared by every pack.
+VLHunters.performance = {
+    -- How often the live population is re-checked (distance, combat, patrol).
+    tickMs = 1000,
+}
+
+---@class VLHuntersPack
+VLHunters.packs = {
+
+    -- =========================================================================
+    { id = 'terminator',
+      enabled = true,
+
+      ped = {
+          -- Streamed by resources/[assets]/vl_terminator, which registers it
+          -- through peds.meta. If this reports invalid, check that resource.
+          model = 't800',
+
+          health = 800,       -- also raises max health; a stock ped caps at 200
+          armour = 0,
+
+          weapon = 'WEAPON_ASSAULTRIFLE_MK2',
+          ammo = 250,
+
+          -- rpemotes calls this walk style "Muscle"
+          -- ([standalone]/rpemotes/client/AnimationList.lua:497).
+          walkClipset = 'move_m@muscle@a',
+
+          accuracy = 40,
+          combatAbility = 2,  -- 0 poor, 1 average, 2 professional
+      },
+
+      spawn = {
+          max = 6,
+          minDistance = 80.0,
+          maxDistance = 180.0,
+          despawnDistance = 260.0,
+          intervalMs = 8000,
+          chance = 0.7,
+          attempts = 12,
+          requireOutOfSight = true,
+          -- Snap to the road network, so they patrol streets.
+          useRoadNodes = true,
+      },
+
+      patrol = { radius = 120.0, minimalLength = 10.0, timeBetweenWalks = 2.0, reissueMs = 15000 },
+      combat = { detectRadius = 60.0, keepRadius = 150.0, reissueMs = 4000 },
+    },
+
+}

@@ -1,0 +1,437 @@
+local missile = nil
+local eventRunning = false
+local eventToken = 0
+local originalWeather = nil
+local originalHour = nil
+local originalMinute = nil
+
+local function dbg(msg)
+    if Config.Debug then
+        print(('[nuclear_wipe] %s'):format(msg))
+    end
+end
+
+local function loadModel(modelName)
+    local model = joaat(modelName)
+
+    if not IsModelInCdimage(model) or not IsModelValid(model) then
+        dbg(('Invalid model: %s'):format(modelName))
+        return nil
+    end
+
+    RequestModel(model)
+    local timeout = GetGameTimer() + 10000
+
+    while not HasModelLoaded(model) do
+        Wait(0)
+        if GetGameTimer() > timeout then
+            dbg(('Timed out loading model: %s'):format(modelName))
+            return nil
+        end
+    end
+
+    return model
+end
+
+local function stopParticle(handle)
+    if handle and handle ~= 0 then
+        StopParticleFxLooped(handle, false)
+    end
+end
+
+local function ensurePtfxAsset(asset)
+    RequestNamedPtfxAsset(asset)
+    local timeout = GetGameTimer() + 5000
+
+    while not HasNamedPtfxAssetLoaded(asset) do
+        Wait(0)
+        if GetGameTimer() > timeout then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local function vecLerp(a, b, t)
+    return vector3(
+        lerp(a.x, b.x, t),
+        lerp(a.y, b.y, t),
+        lerp(a.z, b.z, t)
+    )
+end
+
+local function smoothstep(t)
+    t = math.max(0.0, math.min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+end
+
+local function getFlightPosition(startPos, targetPos, t)
+    -- Smooth horizontal movement with a high arc.
+    local p = smoothstep(t)
+    local pos = vecLerp(startPos, targetPos, p)
+
+    local arcHeight = 700.0
+    pos = vector3(pos.x, pos.y, pos.z + math.sin(math.pi * t) * arcHeight)
+    return pos
+end
+
+local function pointMissileAt(entity, fromPos, toPos)
+    local dir = toPos - fromPos
+    local heading = math.deg(math.atan(dir.y, dir.x)) - 90.0
+    local horizontal = math.sqrt(dir.x * dir.x + dir.y * dir.y)
+    local pitch = -math.deg(math.atan(dir.z, horizontal))
+
+    SetEntityRotation(entity, pitch, 0.0, heading, 2, true)
+end
+
+local function spawnMissile()
+    if DoesEntityExist(missile) then
+        DeleteEntity(missile)
+        missile = nil
+    end
+
+    local model = loadModel(Config.MissileModel)
+    if not model then return false end
+
+    local p = Config.LaunchCoords
+    missile = CreateObject(model, p.x, p.y, p.z, false, false, false)
+    if not DoesEntityExist(missile) then
+        dbg('Failed to create missile entity.')
+        SetModelAsNoLongerNeeded(model)
+        return false
+    end
+
+    SetEntityAsMissionEntity(missile, true, true)
+    SetEntityInvincible(missile, true)
+    FreezeEntityPosition(missile, true)
+    SetEntityCollision(missile, false, false)
+    SetEntityLodDist(missile, 10000)
+    SetObjectTextureVariation(missile, 0)
+
+    SetModelAsNoLongerNeeded(model)
+
+    return true
+end
+
+local function createTrail()
+    -- A small smoke/flame loop attached to the missile.
+    if not ensurePtfxAsset('core') then return 0 end
+
+    UseParticleFxAssetNextCall('core')
+    return StartParticleFxLoopedOnEntity(
+        'exp_grd_rpg_trail',
+        missile,
+        0.0, 0.0, -1.5,
+        0.0, 0.0, 0.0,
+        Config.TrailScale,
+        false, false, false
+    )
+end
+
+local function createWaterLaunchEffect(pos)
+    if not ensurePtfxAsset('core') then return end
+
+    UseParticleFxAssetNextCall('core')
+    StartParticleFxNonLoopedAtCoord(
+        'water_splash',
+        pos.x, pos.y, math.max(pos.z, -1.0),
+        0.0, 0.0, 0.0,
+        5.0,
+        false, false, false
+    )
+end
+
+local function createImpactEffects(pos)
+    dbg(('Impact at %.2f %.2f %.2f'):format(pos.x, pos.y, pos.z))
+
+    -- Initial nuclear fireball.
+    if Config.EnableExplosion then
+        AddExplosion(
+            pos.x, pos.y, pos.z,
+            Config.ExplosionType,
+            Config.ExplosionDamageScale,
+            Config.ExplosionAudible,
+            Config.ExplosionInvisible,
+            1.0
+        )
+
+        -- Secondary blasts spread around the center to sell the scale.
+        local secondary = {
+            vector3(35.0, 0.0, 2.0),
+            vector3(-35.0, 0.0, 2.0),
+            vector3(0.0, 35.0, 2.0),
+            vector3(0.0, -35.0, 2.0),
+            vector3(22.0, 22.0, 2.0),
+            vector3(-22.0, -22.0, 2.0),
+        }
+
+        for _, offset in ipairs(secondary) do
+            AddExplosion(
+                pos.x + offset.x,
+                pos.y + offset.y,
+                pos.z + offset.z,
+                2,
+                2.5,
+                false,
+                true,
+                0.8
+            )
+        end
+    end
+
+    -- Bright flash / smoke column.
+    if ensurePtfxAsset('core') then
+        UseParticleFxAssetNextCall('core')
+        StartParticleFxNonLoopedAtCoord(
+            'ent_sht_steam',
+            pos.x, pos.y, pos.z + 8.0,
+            0.0, 0.0, 0.0,
+            8.0,
+            false, false, false
+        )
+
+        UseParticleFxAssetNextCall('core')
+        StartParticleFxNonLoopedAtCoord(
+            'ent_amb_smoke_foundry',
+            pos.x, pos.y, pos.z + 3.0,
+            0.0, 0.0, 0.0,
+            6.0,
+            false, false, false
+        )
+    end
+
+    -- A ring of ground fires.
+    if Config.EnableFireRing and ensurePtfxAsset('core') then
+        for i = 1, 24 do
+            local angle = math.rad((360.0 / 24.0) * i)
+            local radius = 65.0 + math.random(-10, 10)
+            local x = pos.x + math.cos(angle) * radius
+            local y = pos.y + math.sin(angle) * radius
+            local z = pos.z + 0.2
+
+            UseParticleFxAssetNextCall('core')
+            StartParticleFxNonLoopedAtCoord(
+                'fire_wrecked_plane_cockpit',
+                x, y, z,
+                0.0, 0.0, 0.0,
+                2.0,
+                false, false, false
+            )
+        end
+    end
+end
+
+local function applyPlayerEffects(impactPos, token)
+    if not Config.EnablePlayerEffects then return end
+
+    CreateThread(function()
+        local ped = PlayerPedId()
+        local playerPos = GetEntityCoords(ped)
+        local distance = #(playerPos - impactPos)
+
+        if distance <= Config.PlayerEffectRadius then
+            ShakeGameplayCam('LARGE_EXPLOSION_SHAKE', 1.5)
+            AnimpostfxPlay('DrugsMichaelAliensFight', 0, false)
+            AnimpostfxPlay('Rampage', 0, false)
+
+            DoScreenFadeOut(250)
+            Wait(500)
+            DoScreenFadeIn(1200)
+
+            if distance <= Config.PlayerRagdollRadius then
+                SetPedToRagdoll(ped, 3500, 3500, 0, false, false, false)
+            end
+
+            local damage = math.floor(Config.PlayerDamage * math.max(0.2, 1.0 - (distance / Config.PlayerEffectRadius)))
+            ApplyDamageToPed(ped, damage, false)
+
+            -- Temporary ringing/heartbeat-style screen effect.
+            PlaySoundFrontend(-1, '5_Second_Countdown', 'DLC_HEISTS_GENERAL_FRONTEND_SOUNDS', true)
+            Wait(Config.ShakeDuration)
+
+            AnimpostfxStop('DrugsMichaelAliensFight')
+            AnimpostfxStop('Rampage')
+        end
+    end)
+end
+
+local function saveWorldState()
+    originalWeather = GetPrevWeatherTypeHashName()
+    originalHour = GetClockHours()
+    originalMinute = GetClockMinutes()
+end
+
+local function setAftermathWorld()
+    if not Config.EnableGlobalWeather then return end
+
+    SetWeatherTypeOvertimePersist(Config.AftermathWeather, 5.0)
+    SetWeatherTypeNowPersist(Config.AftermathWeather)
+    SetWeatherTypeNow(Config.AftermathWeather)
+    SetOverrideWeather(Config.AftermathWeather)
+    NetworkOverrideClockTime(Config.AftermathTime, 0, 0)
+end
+
+local function resetWorld()
+    ClearOverrideWeather()
+    ClearWeatherTypePersist()
+    SetWeatherTypeNowPersist('CLEAR')
+    SetWeatherTypeNow('CLEAR')
+
+    if originalHour then
+        NetworkOverrideClockTime(originalHour, originalMinute or 0, 0)
+    end
+end
+
+local function cleanupMissile()
+    if DoesEntityExist(missile) then
+        DeleteEntity(missile)
+    end
+    missile = nil
+end
+
+local function runNuclearEvent(token)
+    saveWorldState()
+
+    if not spawnMissile() then
+        eventRunning = false
+        return
+    end
+
+    dbg('Missile spawned underwater.')
+    TriggerEvent('nuclear_wipe:localAnnouncement', '~r~NUCLEAR MISSILE DETECTED')
+
+    local trail = createTrail()
+    local launchStart = GetGameTimer()
+    local launchOrigin = Config.LaunchCoords
+    local waterExit = vector3(launchOrigin.x, launchOrigin.y, 4.0)
+
+    -- Rise from underwater.
+    while eventRunning and token == eventToken do
+        local elapsed = (GetGameTimer() - launchStart) / 1000.0
+        local t = math.min(elapsed / Config.RiseDuration, 1.0)
+        local p = smoothstep(t)
+        local pos = vecLerp(launchOrigin, waterExit, p)
+        SetEntityCoordsNoOffset(missile, pos.x, pos.y, pos.z, false, false, false)
+        pointMissileAt(missile, pos, vector3(pos.x, pos.y, pos.z + 10.0))
+
+        if t >= 1.0 then break end
+        Wait(0)
+    end
+
+    if trail ~= 0 then stopParticle(trail) end
+    createWaterLaunchEffect(waterExit)
+
+    -- Flight phase toward Los Santos.
+    trail = createTrail()
+    local flightStart = GetGameTimer()
+    local flightOrigin = waterExit
+
+    while eventRunning and token == eventToken do
+        local elapsed = (GetGameTimer() - flightStart) / 1000.0
+        local t = math.min(elapsed / Config.FlightDuration, 1.0)
+        local pos = getFlightPosition(flightOrigin, Config.TargetCoords, t)
+
+        local nextPos = getFlightPosition(flightOrigin, Config.TargetCoords, math.min(t + 0.01, 1.0))
+        SetEntityCoordsNoOffset(missile, pos.x, pos.y, pos.z, false, false, false)
+        pointMissileAt(missile, pos, nextPos)
+
+        if t >= 1.0 then break end
+        Wait(0)
+    end
+
+    if trail ~= 0 then stopParticle(trail) end
+
+    -- Final descent into the target.
+    local descentStartPos = GetEntityCoords(missile)
+    local descentStart = GetGameTimer()
+
+    while eventRunning and token == eventToken do
+        local elapsed = (GetGameTimer() - descentStart) / 1000.0
+        local t = math.min(elapsed / Config.DescentDuration, 1.0)
+        local p = smoothstep(t)
+        local pos = vecLerp(descentStartPos, Config.TargetCoords, p)
+        local nextPos = vecLerp(descentStartPos, Config.TargetCoords, math.min(p + 0.02, 1.0))
+
+        SetEntityCoordsNoOffset(missile, pos.x, pos.y, pos.z, false, false, false)
+        pointMissileAt(missile, pos, nextPos)
+
+        if t >= 1.0 then break end
+        Wait(0)
+    end
+
+    if trail ~= 0 then stopParticle(trail) end
+
+    if not eventRunning or token ~= eventToken then
+        cleanupMissile()
+        return
+    end
+
+    -- Impact.
+    TriggerEvent('nuclear_wipe:localAnnouncement', '~r~☢ NUCLEAR IMPACT ☢')
+    createImpactEffects(Config.TargetCoords)
+    applyPlayerEffects(Config.TargetCoords, token)
+    cleanupMissile()
+
+    Wait(1500)
+    setAftermathWorld()
+    dbg('Aftermath weather applied.')
+
+    Wait(Config.AftermathDuration * 1000)
+
+    if eventRunning and token == eventToken then
+        resetWorld()
+        eventRunning = false
+        TriggerServerEvent('nuclear_wipe:finished')
+        dbg('Nuclear event finished and world reset.')
+    end
+end
+
+RegisterNetEvent('nuclear_wipe:start', function()
+    if eventRunning then return end
+
+    eventRunning = true
+    eventToken = eventToken + 1
+    local token = eventToken
+
+    CreateThread(function()
+        runNuclearEvent(token)
+    end)
+end)
+
+RegisterNetEvent('nuclear_wipe:reset', function()
+    eventToken = eventToken + 1
+    eventRunning = false
+    cleanupMissile()
+    AnimpostfxStop('DrugsMichaelAliensFight')
+    AnimpostfxStop('Rampage')
+    resetWorld()
+    dbg('Event manually reset.')
+end)
+
+RegisterNetEvent('nuclear_wipe:notify', function(message)
+    TriggerEvent('chat:addMessage', {
+        color = {255, 80, 80},
+        args = {'NUCLEAR', message}
+    })
+end)
+
+RegisterNetEvent('nuclear_wipe:localAnnouncement', function(message)
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(message)
+    EndTextCommandThefeedPostTicker(false, false)
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+
+    eventToken = eventToken + 1
+    eventRunning = false
+    cleanupMissile()
+    AnimpostfxStop('DrugsMichaelAliensFight')
+    AnimpostfxStop('Rampage')
+end)

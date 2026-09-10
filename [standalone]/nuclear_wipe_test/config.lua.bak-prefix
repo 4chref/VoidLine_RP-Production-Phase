@@ -1,0 +1,52 @@
+Config = {}
+
+-- Test command
+Config.Command = 'nuclearwipe'
+Config.ResetCommand = 'nuclearreset'
+
+-- Missile model
+Config.MissileModel = 'xm_prop_x17_silo_rocket_01'
+
+-- Launch point: offshore / underwater
+-- Change these coordinates later to match the exact launch location you want.
+Config.LaunchCoords = vec3(3164.41, -4596.79, -61.99)
+
+-- Target: central Los Santos / Legion Square area
+Config.TargetCoords = vec3(176.38, -971.3, 28.61)
+
+-- Event timing in seconds
+Config.RiseDuration = 12.0
+Config.FlightDuration = 35.0
+Config.DescentDuration = 8.0
+Config.ImpactRadius = 250.0
+
+-- Missile visual tuning
+Config.MissileScale = 1.0
+Config.TrailScale = 1.0
+
+-- Aftermath
+Config.AftermathWeather = 'HALLOWEEN'
+Config.AftermathTime = 0 -- 00:00
+Config.AftermathDuration = 300 -- 5 minutes
+
+-- Player effects
+Config.PlayerDamage = 35
+Config.PlayerEffectRadius = 250.0
+Config.PlayerRagdollRadius = 100.0
+Config.ShakeDuration = 12000
+
+-- Explosion tuning. Multiple explosions/effects make it feel much larger than
+-- a single GTA explosion.
+Config.ExplosionType = 29
+Config.ExplosionDamageScale = 3.0
+Config.ExplosionAudible = true
+Config.ExplosionInvisible = false
+
+-- Set false while testing if you only want to see the missile.
+Config.EnableGlobalWeather = true
+Config.EnablePlayerEffects = true
+Config.EnableExplosion = true
+Config.EnableFireRing = true
+
+-- Debug messages
+Config.Debug = true

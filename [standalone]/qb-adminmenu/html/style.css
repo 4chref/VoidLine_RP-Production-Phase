@@ -1,0 +1,630 @@
+/* =============================================================================
+   VoidLine: Trader-UI theme pass. This resource is a full Bootstrap sb-admin-2
+   dashboard (~1600 lines of HTML across many vendored CSS files) -- not
+   rebuilt from scratch, and not narrowed to a slide-in panel the way the
+   trader UI is, since an admin tool genuinely needs the width for tables
+   (player lists, logs, bans). Instead, the same visual language is applied
+   as an override layer here, which loads last and can beat every Bootstrap
+   rule: the olive-green accent, dark glass panels, flat corners, Rajdhani/
+   Inter typography, and the top accent line.
+   ============================================================================= */
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    /* af-recycler's actual scanned tokens -- same dark industrial panel used
+       for the trader UI too, applied here at full solid opacity (no blur
+       experiment, no reduced alpha). */
+    --tui-bg-panel: rgba(10, 11, 12, .97);
+    --tui-bg-elevated: rgba(255, 255, 255, .02);
+    --tui-bg-elevated-hover: rgba(255, 255, 255, .05);
+    --tui-bg-input: rgba(0, 0, 0, .5);
+
+    --tui-border: rgba(255, 255, 255, .1);
+    --tui-border-hover: rgba(255, 255, 255, .2);
+    --tui-border-active: #8fb85a;
+
+    --tui-accent: #8fb85a;
+    --tui-accent-strong: #b3d97f;
+    --tui-accent-soft: rgba(143, 184, 90, .16);
+    --tui-accent-soft-hover: rgba(143, 184, 90, .28);
+
+    --tui-text: #f5f7f6;
+    --tui-text-secondary: rgba(245, 247, 246, .62);
+    --tui-text-muted: rgba(245, 247, 246, .4);
+
+    --tui-danger: #e2685f;
+    --tui-danger-soft: rgba(226, 104, 95, .16);
+    --tui-info: #4f8fc0;
+
+    --tui-radius: 14px;
+    --tui-radius-sm: 8px;
+    --tui-font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    --tui-font-title: 'Rajdhani', 'Agency FB', 'Arial Narrow', sans-serif;
+}
+
+html {
+    font-size: 15px !important; /* was Bootstrap's 16px default -- everything in rem scales down from this */
+}
+
+body {
+    background: transparent !important;
+    font-family: var(--tui-font) !important;
+    color: var(--tui-text) !important;
+    font-size: .92rem;
+}
+
+body, .bootstrap, #page-top {
+    --bs-body-color: var(--tui-text);
+}
+
+/* Main panel: right-anchored slide-in instead of centred, dark glass instead
+   of Bootstrap's default light card stack, flat corners instead of the
+   original 15px, top accent glow line matching the trader panel's own
+   ::before treatment. */
+#mainbox {
+    left: 50% !important;
+    right: auto !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%);
+    width: 62vw !important;
+    height: 72vh !important;
+    background: var(--tui-bg-panel) !important;
+    border: 1px solid var(--tui-border);
+    border-radius: var(--tui-radius) !important;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .55), 0 4px 16px rgba(0, 0, 0, .35);
+    position: absolute;
+    z-index: 1000;
+    animation: tui-fade-in .22s ease-out both;
+}
+
+@keyframes tui-fade-in {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(.97); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+#mainbox::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--tui-accent), transparent);
+    opacity: .85;
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* Sidebar -- same background as the main panel, not a separate darker
+   shade, so the two read as one surface. */
+.sidebar {
+    background: var(--tui-bg-panel) !important;
+    border-right: 1px solid var(--tui-border) !important;
+}
+
+.sidebar .sidebar-brand,
+.sidebar-brand-text {
+    font-family: var(--tui-font-title) !important;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--tui-text) !important;
+}
+
+.sidebar .nav-item .nav-link {
+    color: var(--tui-text-secondary) !important;
+    font-family: var(--tui-font-title);
+    font-weight: 600;
+    letter-spacing: .04em;
+}
+
+.sidebar .nav-item .nav-link:hover,
+.sidebar .nav-item.active .nav-link,
+.sidebar .nav-item .nav-link.active {
+    color: var(--tui-accent-strong) !important;
+    background: var(--tui-accent-soft) !important;
+}
+
+.sidebar .nav-item .nav-link i,
+.sidebar .nav-item .nav-link svg {
+    color: inherit !important;
+}
+
+.sidebar-divider {
+    border-color: var(--tui-border) !important;
+}
+
+.sidebar-heading {
+    color: var(--tui-accent) !important;
+    font-family: var(--tui-font-title);
+    letter-spacing: .12em;
+}
+
+/* Topbar -- same background as the main panel/sidebar, not its own shade */
+.topbar {
+    background: var(--tui-bg-panel) !important;
+    border-bottom: 1px solid var(--tui-border) !important;
+}
+
+.topbar .nav-link,
+.topbar .dropdown-menu {
+    color: var(--tui-text) !important;
+}
+
+/* Cards -- same background as the main panel/sidebar/topbar, not their own
+   lighter shade, so the content area reads as the same surface. The
+   border-left-* stat cards (Total Players Online etc.) carry their own
+   background from the vendored sb-admin-2.css, so they're targeted
+   explicitly here too rather than trusting the plain .card rule to win. */
+.card,
+.card.border-left-info,
+.card.border-left-success,
+.card.border-left-primary,
+.card.border-left-warning,
+.card.border-left-danger {
+    background: var(--tui-bg-panel) !important;
+    border: 1px solid var(--tui-border) !important;
+    border-radius: var(--tui-radius) !important;
+    color: var(--tui-text) !important;
+}
+
+.card.border-left-info { border-left: 4px solid var(--tui-info) !important; }
+.card.border-left-success { border-left: 4px solid var(--tui-accent) !important; }
+.card.border-left-danger { border-left: 4px solid var(--tui-danger) !important; }
+
+.card-header {
+    background: rgba(0, 0, 0, .45) !important;
+    border-bottom: 1px solid var(--tui-border) !important;
+    color: var(--tui-text) !important;
+    font-family: var(--tui-font-title);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.card-header.bg-primary,
+.card-header.bg-success,
+.card-header.bg-danger,
+.card-header.bg-warning,
+.card-header.bg-info {
+    background: rgba(0, 0, 0, .45) !important;
+    color: var(--tui-accent-strong) !important;
+}
+
+/* Buttons -- soft-fill accent style matching .action-btn / .submit-btn from
+   the trader UI, instead of Bootstrap's solid saturated fills. */
+.btn {
+    border-radius: var(--tui-radius-sm) !important;
+    font-family: var(--tui-font-title) !important;
+    font-weight: 600 !important;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-size: .82rem !important;
+    padding: .35rem .8rem !important;
+    line-height: 1.2 !important;
+}
+
+.btn-primary,
+.btn-success {
+    background: var(--tui-accent-soft) !important;
+    border-color: var(--tui-border-active) !important;
+    color: var(--tui-accent-strong) !important;
+}
+
+.btn-primary:hover,
+.btn-success:hover {
+    background: var(--tui-accent-soft-hover) !important;
+}
+
+.btn-danger {
+    background: var(--tui-danger-soft) !important;
+    border-color: var(--tui-danger) !important;
+    color: var(--tui-danger) !important;
+}
+
+.btn-danger:hover {
+    background: rgba(226, 104, 95, .28) !important;
+}
+
+.btn-secondary,
+.btn-outline-secondary {
+    background: var(--tui-bg-elevated) !important;
+    border-color: var(--tui-border) !important;
+    color: var(--tui-text-secondary) !important;
+}
+
+.btn-secondary:hover {
+    background: var(--tui-bg-elevated-hover) !important;
+    color: var(--tui-text) !important;
+}
+
+/* Forms */
+.form-control,
+select.form-control,
+textarea.form-control {
+    background: var(--tui-bg-input) !important;
+    border: 1px solid var(--tui-border) !important;
+    border-radius: var(--tui-radius-sm) !important;
+    color: var(--tui-text) !important;
+}
+
+.form-control:focus {
+    border-color: var(--tui-border-active) !important;
+    box-shadow: none !important;
+    background: rgba(0, 0, 0, .62) !important;
+}
+
+.form-control::placeholder {
+    color: var(--tui-text-muted) !important;
+}
+
+label,
+.form-check-label {
+    color: var(--tui-text-secondary) !important;
+    font-family: var(--tui-font-title);
+    letter-spacing: .04em;
+}
+
+/* Tables */
+.table {
+    color: var(--tui-text) !important;
+}
+
+.table thead th {
+    background: rgba(0, 0, 0, .45) !important;
+    color: var(--tui-accent) !important;
+    border-color: var(--tui-border) !important;
+    font-family: var(--tui-font-title);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    font-size: .8rem;
+}
+
+.table td, .table th {
+    border-color: var(--tui-border) !important;
+}
+
+.table-striped tbody tr:nth-of-type(odd),
+.table-hover tbody tr:hover {
+    background: var(--tui-bg-elevated) !important;
+}
+
+/* Badges -- recoloured to the trader accent/danger pair instead of
+   Bootstrap's default blue/green/red saturation. */
+.badge-success {
+    background: var(--tui-accent-soft) !important;
+    color: var(--tui-accent-strong) !important;
+}
+
+.badge-danger {
+    background: var(--tui-danger-soft) !important;
+    color: var(--tui-danger) !important;
+}
+
+.badge-primary,
+.badge-info {
+    background: rgba(79, 143, 192, .18) !important;
+    color: var(--tui-info) !important;
+}
+
+/* Modals */
+.modal-content {
+    background: var(--tui-bg-panel) !important;
+    border: 1px solid var(--tui-border-hover) !important;
+    border-radius: var(--tui-radius) !important;
+    color: var(--tui-text) !important;
+}
+
+.modal-header,
+.modal-footer {
+    border-color: var(--tui-border) !important;
+}
+
+/* Compact pass -- tighter paddings throughout instead of Bootstrap's roomy
+   dashboard defaults, to match the smaller panel size above. */
+.card-body {
+    padding: .65rem .9rem !important;
+    font-size: .82rem;
+}
+
+.card-header {
+    padding: .4rem .9rem !important;
+    font-size: .82rem;
+}
+
+.table td, .table th {
+    padding: .3rem .55rem !important;
+    font-size: .78rem !important;
+}
+
+.sidebar .nav-item .nav-link {
+    padding: .45rem .8rem !important;
+    font-size: .78rem !important;
+}
+
+/* Action button rows (Self Actions / Server Actions etc.) -- these buttons
+   are plain wrapping inline-block elements, so the vertical gap between
+   wrapped lines came from the container's line-height, not from button
+   margin, and no amount of .btn margin alone could make it match the
+   horizontal gap. flex-wrap + a single `gap` value controls both axes
+   identically instead. Margin reset to 0 here so gap is the only spacing
+   source (no doubling up).
+   #actionsField is the one confirmed container; the :has() fallback catches
+   any other card-body full of .action buttons the same way. */
+#actionsField,
+.card-body:has(> .btn.action) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+#actionsField .btn.action,
+.card-body:has(> .btn.action) .btn.action {
+    margin: 0 !important;
+}
+
+#actionsField h5,
+.card-body:has(> .btn.action) h5 {
+    width: 100%;
+    margin: 4px 0 !important;
+}
+
+/* Footer removed entirely -- was "VoidLine 1.7.1 Copyright (c) 2021-2023 919DESIGN" */
+.copyright {
+    display: none !important;
+}
+
+/* Scrollbar hidden -- content still scrolls (wheel/drag), just no visible
+   track/thumb. base style.css sets #mainbox to overflow-y:scroll, which
+   would otherwise always reserve a visible scrollbar even when content
+   fits the now much smaller panel. */
+::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+}
+
+* {
+    scrollbar-width: none !important; /* Firefox-style property; harmless no-op on CEF's Chromium engine, kept for completeness */
+}
+
+#gangpage,#jobpage,#serverpage,#playerpage,#playerlistpage,#resourcelistpage,#banpage,#logviewerpage,#characterspage,#itemspage,#vehiclespage,#adminchatpage,#reportbox,#reportspage{
+    display:none;
+}
+
+#mainbox {
+    overflow: hidden;
+    position:absolute;
+    left:5vw;
+    top:5vh;
+    border-radius:15px;
+    width: 90vw;
+    height:90vh;
+    overflow-y:scroll;
+    display:none;
+    opacity:100%;
+    transition: all 0.2 ease;
+}
+
+.playerwarning {
+    display:none;
+    position:absolute;
+    top:0;
+    height:100%;
+    width:100%;
+    background-color:rgba(139, 0, 0, 0.8);
+    color:#eee;
+}
+
+.warning-title {
+    padding-top:25%;
+    margin:auto;
+    width:60%;
+    font-weight:bolder;
+    text-align:center;
+}
+.warning-body {
+    margin:auto;
+    width:60%;
+    font-weight:bolder;
+    text-align:center;
+}
+
+.btn {
+    vertical-align: baseline !important;
+}
+
+.modal-backdrop {
+    display: none !important;
+}
+
+.modal-backdrop .show {
+    display: none !important;
+}
+
+
+.btn-group-xs > .btn, .btn-xs {
+    padding: .25rem .4rem;
+    font-size: .875rem;
+    line-height: .5;
+    border-radius: .2rem;
+}
+
+#logo:hover {
+    text-decoration: none;
+    cursor:default;
+    color:white;
+}
+
+.player:hover {
+    background-color:#D7A027;
+    cursor:pointer;
+}
+
+.action {
+    margin: 1px !important;
+}
+
+/* Bootstrap's utility spacing classes (mr-2/me-2/mb-2 etc.) used throughout
+   the original markup between buttons -- tightened generically rather than
+   chasing every individual usage. */
+.btn {
+    margin: 1px !important;
+}
+
+.just-padding {
+    padding: 15px;
+}
+
+.list-group.list-group-root {
+    padding: 0;
+    overflow: hidden;
+}
+
+.list-group.list-group-root .list-group {
+    margin-bottom: 0;
+}
+
+.list-group.list-group-root .list-group-item {
+    border-radius: 0;
+    border-width: 1px 0 0 0;
+}
+
+.list-group.list-group-root > .list-group-item:first-child {
+    border-top-width: 0;
+}
+
+.list-group.list-group-root > .list-group > .list-group-item {
+    padding-left: 30px;
+}
+
+.list-group.list-group-root > .list-group > .list-group > .list-group-item {
+    padding-left: 45px;
+}
+
+.list-group-item .glyphicon {
+    margin-right: 5px;
+}
+
+.loadingspinner {
+    margin-left: auto;
+    width: 50%;
+    height: 50%;
+    padding-top: 25%;
+}
+
+.fancySearchRow input {
+    border-radius:5px;
+    border:1px solid #444;
+}
+
+.fancySearchRow input:active {
+    border:1px solid rgb(215, 160, 150);
+}
+
+.listactionbutton {
+    font-size: 1.5rem;
+    font-weight:400;
+}
+
+.serverlogBox {
+    min-height:270px;
+    max-height:270px;
+    overflow-y:scroll;
+    background-color:#444;
+    border:1px solid #777;
+    border-radius:0.35em;
+    padding-left:10px;
+}
+
+code {
+    color: #adadad !important;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #999;
+    border: 4px solid transparent;
+    border-radius: 8px;
+    background-clip: padding-box;  
+}
+
+::-webkit-scrollbar {
+    width: 16px;
+}
+
+#adminchatboxul {
+    min-height:55vh;
+    height:55vh;
+    max-height:55vh;
+    overflow-y:scroll;
+}
+
+#adminchatboxul li {
+    border: 1px solid grey;
+    padding: 4px;
+    border-radius: 10px;
+    margin-top: 6px;
+}
+
+.reportbox {
+    background:rgba(20, 20, 20, 0.6);
+    border-radius:10px;
+    width:30%;
+    height:50%;
+    margin:auto;
+    color:#999;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    -ms-transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%);
+}
+
+.reporttitle {
+    font-size:20pt;
+    border-bottom:1px solid grey;
+    margin-bottom:10px;
+}
+
+.reportbox form {
+    margin:10px;
+}
+
+.reportbox input,textarea {
+    opacity: 0.6;
+}
+
+.reportbox textarea {
+    resize:none;
+}
+
+.reportclosebtn {
+    background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	cursor: pointer;
+	outline: inherit;
+    opacity: 0.6;
+    color: #eee;
+}
+.reportclosebtn:before { content:"\2716"; }
+.reportclosebtn:hover {
+    opacity: 1;
+}
+
+/* VoidLine 2026-09-02: visual state for a [data-action] button or page-nav
+   item the current role (admin/moderator) doesn't have permission for --
+   see AdminPanel.ApplyPermissionGating in script.js. pointer-events:none
+   plus the document-level .perm-disabled click guard in script.js is what
+   actually makes it inert; the rest here is just the greyed-out look. */
+.perm-disabled {
+    opacity: 0.4 !important;
+    filter: grayscale(60%);
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    box-shadow: none !important;
+}
+.perm-disabled:hover {
+    opacity: 0.4 !important;
+}

@@ -1,0 +1,529 @@
+-- =============================================================================
+-- vl_hud / client/main.lua
+--
+-- Feeds the DayZ-style HUD. Deliberately dumb: it samples status a few times a
+-- second and hands raw percentages to the NUI, which owns all presentation.
+--
+-- Status VALUES are not owned here -- hunger/thirst live on qbx_core's player
+-- statebags and decay in qbx_core's server loop. This resource only displays
+-- them, so it can be stopped or replaced without touching survival mechanics.
+-- =============================================================================
+
+local playerState = LocalPlayer.state
+
+local hunger = 100
+local thirst = 100
+local warmth = 100 -- cosmetic only, see below
+
+-- =============================================================================
+-- STATUS SOURCES
+-- =============================================================================
+
+AddStateBagChangeHandler('hunger', ('player:%s'):format(cache.serverId), function(_, _, value)
+    hunger = value or hunger
+end)
+
+AddStateBagChangeHandler('thirst', ('player:%s'):format(cache.serverId), function(_, _, value)
+    thirst = value or thirst
+end)
+
+RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
+    hunger = QBX.PlayerData.metadata?.hunger or 100
+    thirst = QBX.PlayerData.metadata?.thirst or 100
+end)
+
+-- -----------------------------------------------------------------------------
+-- Grid power
+--
+-- vl_blackout publishes the whole grid state on GlobalState.blackout. Mirrored
+-- here rather than polled so the icon flips the instant the server says so, and
+-- read defensively so vl_hud still works on its own: if that resource is absent
+-- the key never appears and the icon simply stays in its powered state.
+-- -----------------------------------------------------------------------------
+
+local blackoutActive = false
+
+-- Countdown for the power icon's timer. vl_blackout's own on-screen banner is
+-- disabled (VLBlackout.timer.enabled = false in vl_panel/config.lua); this
+-- mirrors just enough of its state logic to show the same remaining time as
+-- a small label over the power icon instead.
+local blackoutEndAt = 0
+
+---@param value any
+---@return boolean
+local function readBlackout(value)
+    return type(value) == 'table' and value.active == true
+end
+
+AddStateBagChangeHandler('blackout', 'global', function(_, _, value)
+    local wasActive = blackoutActive
+    blackoutActive = readBlackout(value)
+
+    -- A fresh toggle (not the initial read on join): value.duration is the
+    -- full remaining time at the moment it started, same assumption
+    -- vl_panel's own client/blackout.lua makes.
+    if blackoutActive and not wasActive then
+        local duration = type(value) == 'table' and tonumber(value.duration) or 0
+        blackoutEndAt = GetGameTimer() + (duration or 0) * 1000
+    elseif not blackoutActive then
+        blackoutEndAt = 0
+    end
+end)
+
+CreateThread(function()
+    Wait(1500) -- GlobalState needs a moment to replicate on a fresh join
+    blackoutActive = readBlackout(GlobalState.blackout)
+
+    -- Joining mid-blackout: only the server knows how much is left, same as
+    -- vl_panel's own client does via this exact request/reply pair.
+    if blackoutActive then
+        TriggerServerEvent('vl_blackout:requestState')
+    end
+end)
+
+RegisterNetEvent('vl_blackout:syncState', function(active, remaining)
+    if active and remaining and remaining > 0 then
+        blackoutEndAt = GetGameTimer() + remaining * 1000
+    else
+        blackoutEndAt = 0
+    end
+end)
+
+---@return number seconds remaining, 0 if no blackout is running
+local function blackoutRemainingSeconds()
+    if not blackoutActive or blackoutEndAt <= 0 then return 0.0 end
+    return math.max(0, math.ceil((blackoutEndAt - GetGameTimer()) / 1000))
+end
+
+---Health as a percentage. GTA gives a player ped 100-200hp where 100 is death,
+---so the bottom 100 has to be subtracted before it means anything.
+---@return number
+local function healthPercent()
+    local ped = cache.ped
+    local hp = GetEntityHealth(ped) - 100
+    local max = GetEntityMaxHealth(ped) - 100
+    if max <= 0 then return 0 end
+    return math.max(0.0, math.min(100.0, (hp / max) * 100.0))
+end
+
+---Cosmetic warmth. GTA has no body temperature, so this is derived from
+---exposure: rain, snow and swimming chill you, shelter warms you back up. It
+---drives the thermometer icon ONLY -- nothing in the game reads it.
+local function updateWarmth()
+    local ped = cache.ped
+    local exposed = GetInteriorFromEntity(ped) == 0
+
+    -- Weather natives are guarded: not every game build exposes both, and a
+    -- missing one would otherwise take the whole HUD thread down.
+    local rain = (type(GetRainLevel) == 'function' and GetRainLevel()) or 0.0
+    local snow = (type(GetSnowLevel) == 'function' and GetSnowLevel()) or 0.0
+
+    local wet = IsEntityInWater(ped)
+        or (rain > 0.1 and exposed and not IsPedInAnyVehicle(ped, false))
+    local snowing = snow > 0.1 and exposed and not IsPedInAnyVehicle(ped, false)
+
+    if IsEntityInWater(ped) then
+        warmth = warmth - 1.2
+    elseif wet or snowing then
+        warmth = warmth - 0.35
+    else
+        warmth = warmth + 0.6
+    end
+
+    warmth = math.max(0.0, math.min(100.0, warmth))
+end
+
+-- -----------------------------------------------------------------------------
+-- Basic needs (sleep / poop / pee), read from the basic_needs resource.
+--
+-- Sleep follows every other icon here: 100 = fine, drains toward 0 as
+-- exhaustion builds, so it's inverted before it leaves this function (0 means
+-- "fine" and 100 means "critical" on basic_needs' own scale).
+--
+-- Poop and pee are the opposite on purpose: they're sent RAW, so the icon
+-- fills UP as the need builds toward 100% and the fill turns red as it gets
+-- there -- matching basic_needs' own HUD instead of the "drains when bad"
+-- convention the rest of this HUD uses. See applyStatRising in app.js.
+-- -----------------------------------------------------------------------------
+
+---@return number sleep, number poop, number pee  -- sleep: "fine" = 100. poop/pee: "fine" = 0
+local function basicNeeds()
+    if GetResourceState('vl_basic_needs') ~= 'started' then
+        return 100.0, 0.0, 0.0
+    end
+
+    local ok, needs = pcall(function() return exports['vl_basic_needs']:GetNeeds() end)
+    if not ok or not needs then return 100.0, 0.0, 0.0 end
+
+    local function clampPct(v)
+        return math.max(0.0, math.min(100.0, tonumber(v) or 0))
+    end
+
+    return 100.0 - clampPct(needs.sleep), clampPct(needs.poop), clampPct(needs.pee)
+end
+
+---Seconds left in the faint/unconscious sequence, 0 if not fainted. Drives
+---the countdown drawn over the sleep icon.
+---@return number
+local function faintRemainingSeconds()
+    if GetResourceState('vl_basic_needs') ~= 'started' then return 0.0 end
+
+    local ok, ms = pcall(function() return exports['vl_basic_needs']:GetFaintRemainingMs() end)
+    if not ok or not ms or ms <= 0 then return 0.0 end
+
+    return math.ceil(ms / 1000.0)
+end
+
+-- -----------------------------------------------------------------------------
+-- Breath
+--
+-- GTA exposes only "seconds of air left", never the capacity, and the capacity
+-- moves: qbx_divegear calls SetPedMaxTimeUnderwater(2000.0) with a tank
+-- equipped and drops it back to 1.0 without one. So the ceiling is OBSERVED
+-- rather than assumed -- resampled every tick the player is above water, which
+-- is exactly when the lungs read full -- and the bar stays honest with or
+-- without dive gear.
+-- -----------------------------------------------------------------------------
+
+local breathMax = 0.0
+
+---Air remaining as a percentage, plus whether the player is actually under.
+---@return number percent
+---@return boolean submerged
+local function breathState()
+    local ped = cache.ped
+    local remaining = GetPlayerUnderwaterTimeRemaining(cache.playerId) or 0.0
+    local submerged = IsPedSwimmingUnderWater(ped)
+
+    if not submerged then
+        -- Above water the native reports the full supply on most builds, but
+        -- zero on some -- so only a positive reading is trusted as the ceiling.
+        if remaining > 0.0 then breathMax = remaining end
+        return 100.0, false
+    end
+
+    -- First frame under with no ceiling learned yet (or a tank equipped
+    -- mid-dive, which raises it): seed from what we can see right now.
+    if breathMax < remaining then breathMax = remaining end
+    if breathMax <= 0.0 then breathMax = 10.0 end -- GTA's stock lung capacity
+
+    return math.max(0.0, math.min(100.0, (remaining / breathMax) * 100.0)), true
+end
+
+-- -----------------------------------------------------------------------------
+-- Weapon
+--
+-- ox_inventory owns the equipped item, so it is mirrored from that resource's
+-- own event rather than polled: the event fires with the item on equip and with
+-- nil on holster, which is exactly the widget's show/hide condition.
+--
+-- The ROUNDS figure comes from the ped rather than from item.metadata.ammo,
+-- because ox_inventory only writes the magazine back to metadata on holster --
+-- reading metadata would leave the count frozen until the player put the gun
+-- away. GetAmmoInPedWeapon tracks every shot.
+-- -----------------------------------------------------------------------------
+
+local currentWeapon
+
+AddEventHandler('ox_inventory:currentWeapon', function(item)
+    currentWeapon = item
+end)
+
+CreateThread(function()
+    Wait(500) -- catch a weapon already equipped across a HUD restart
+    if GetResourceState('ox_inventory') ~= 'started' then return end
+    currentWeapon = exports.ox_inventory:getCurrentWeapon()
+end)
+
+---Reserve rounds carried for the equipped weapon's ammo type.
+---@param ammoName string?
+---@return integer
+local function reserveAmmo(ammoName)
+    if type(ammoName) ~= 'string' or ammoName == '' then return 0 end
+    if GetResourceState('ox_inventory') ~= 'started' then return 0 end
+    return exports.ox_inventory:GetItemCount(ammoName) or 0
+end
+
+---The equipped weapon as the NUI wants it, or nil when unarmed.
+---@return table?
+local function weaponState()
+    local item = currentWeapon
+    if not item or not item.hash then return nil end
+
+    -- item.melee is 0 for melee weapons and false for everything else -- 0 is
+    -- truthy in Lua, so this has to be an equality test, not `if item.melee`.
+    local isMelee = item.melee == 0
+
+    local metadata = item.metadata or {}
+
+    -- Durability is a 0-100 percentage on weapons. Items that do not degrade
+    -- carry no durability at all, and ox_inventory stores an expiry TIMESTAMP
+    -- in this field for consumables that decay with time -- so anything out of
+    -- range is treated as "no durability bar" rather than shown as a number
+    -- that would be meaningless.
+    local durability = tonumber(metadata.durability)
+    local hasDurability = durability ~= nil and durability >= 0 and durability <= 100
+
+    return {
+        label = item.label or item.name or '',
+        melee = isMelee,
+        -- Throwables are counted by the item itself, not by a magazine.
+        ammo = (isMelee or item.throwable) and -1 or (GetAmmoInPedWeapon(cache.ped, item.hash) or 0),
+        reserve = (not isMelee and VLHud.weapon.showReserve) and reserveAmmo(item.ammo) or -1,
+        durability = hasDurability and durability or -1,
+    }
+end
+
+-- =============================================================================
+-- MINIMAP
+-- =============================================================================
+
+CreateThread(function()
+    if not VLHud.minimap.hide then return end
+    while true do
+        local inVehicle = IsPedInAnyVehicle(cache.ped, false)
+        DisplayRadar(VLHud.minimap.showInVehicle and inVehicle or false)
+        Wait(500)
+    end
+end)
+
+-- =============================================================================
+-- HUD FEED
+-- =============================================================================
+
+CreateThread(function()
+    while true do
+        if LocalPlayer.state.isLoggedIn then
+            updateWarmth()
+
+            local ped = cache.ped
+            -- GetPlayerSprintStaminaRemaining counts UP toward exhaustion, so
+            -- invert it into "stamina left" for display.
+            local spent = GetPlayerSprintStaminaRemaining(cache.playerId) or 0
+            local stamina = math.max(0.0, math.min(100.0, 100.0 - spent))
+
+            local sleep, poop, pee = basicNeeds()
+
+            SendNUIMessage({
+                action = 'status',
+                data = {
+                    health = healthPercent(),
+                    hunger = math.max(0.0, math.min(100.0, hunger or 100)),
+                    thirst = math.max(0.0, math.min(100.0, thirst or 100)),
+                    stamina = stamina,
+                    armour = GetPedArmour(ped) or 0,
+                    temperature = warmth,
+                    sleep = sleep,
+                    poop = poop,
+                    pee = pee,
+                    sleepFaintSeconds = faintRemainingSeconds(),
+                    dead = IsEntityDead(ped),
+                    inVehicle = IsPedInAnyVehicle(ped, false),
+                    blackout = blackoutActive,
+                    blackoutSeconds = blackoutRemainingSeconds(),
+                    threat = Threat.IsActive(),
+                },
+            })
+        else
+            SendNUIMessage({ action = 'hide' })
+        end
+        Wait(VLHud.refreshMs)
+    end
+end)
+
+-- =============================================================================
+-- VOICE + NOISE
+-- =============================================================================
+
+---Is the local player transmitting right now?
+---
+---pma-voice drives Mumble, so MumbleIsPlayerTalking is the authoritative check.
+---Both natives are probed defensively because which one exists varies by build,
+---and a missing one would otherwise kill this thread.
+---@return boolean talking
+---@return boolean onRadio
+local function voiceState()
+    local playerId = cache.playerId
+    local talking = false
+
+    if type(MumbleIsPlayerTalking) == 'function' then
+        talking = MumbleIsPlayerTalking(playerId) or false
+    end
+    if not talking and type(NetworkIsPlayerTalking) == 'function' then
+        talking = NetworkIsPlayerTalking(playerId) or false
+    end
+
+    -- pma-voice exposes the current radio channel on the player statebag; a
+    -- non-zero channel while talking means the transmission is going out over
+    -- the radio rather than proximity.
+    local channel = playerState.radioChannel or 0
+    return talking, talking and channel ~= 0
+end
+
+---How much sound is the player making, 1-4? Ordered loudest first so that e.g.
+---firing while sprinting reports as shooting rather than as movement.
+---@return integer
+local function noiseLevel()
+    local ped = cache.ped
+    local n = VLHud.noiseLevels
+
+    if IsPedShooting(ped) then return n.shooting end
+    if IsPedInAnyVehicle(ped, false) then return n.inVehicle end
+    if GetPedStealthMovement(ped) == 1 then return n.stealth end
+    if IsPedSprinting(ped) then return n.sprinting end
+    if IsPedRunning(ped) then return n.running end
+    if IsPedWalking(ped) then return n.walking end
+
+    return n.standing
+end
+
+CreateThread(function()
+    while true do
+        if LocalPlayer.state.isLoggedIn then
+            local talking, onRadio = voiceState()
+            -- Breath rides the fast channel rather than the status tick: stock
+            -- lung capacity is ~10s, so at 250ms the bar would fall in visible
+            -- 2.5% steps instead of draining smoothly.
+            local breath, submerged = breathState()
+            SendNUIMessage({
+                action = 'live',
+                data = {
+                    talking = talking,
+                    radio = onRadio,
+                    noise = noiseLevel(),
+                    breath = breath,
+                    -- Two separate flags: one decides whether the bar is on
+                    -- screen, the other whether the level means anything.
+                    submerged = submerged,
+                    swimming = IsPedSwimming(cache.ped),
+                    weapon = VLHud.weapon.enabled and weaponState() or nil,
+                    inVehicle = IsPedInAnyVehicle(cache.ped, false),
+                },
+            })
+        end
+        Wait(VLHud.liveRefreshMs)
+    end
+end)
+
+-- =============================================================================
+-- VEHICLE DASHBOARD
+-- =============================================================================
+
+---Fuel level 0-100. ox_fuel keeps fuel on the vehicle statebag, which is the
+---authoritative value when it's running; GetVehicleFuelLevel is the fallback.
+---@param veh number
+---@return number
+local function fuelLevel(veh)
+    local state = Entity(veh).state
+    if state and state.fuel then
+        return math.max(0.0, math.min(100.0, state.fuel + 0.0))
+    end
+    return math.max(0.0, math.min(100.0, GetVehicleFuelLevel(veh) or 0.0))
+end
+
+---Gear readout: R for reverse, N when stopped or in neutral, otherwise the gear.
+---@param veh number
+---@param speed number
+---@return string
+local function gearLabel(veh, speed)
+    local gear = GetVehicleCurrentGear(veh) or 0
+    if IsVehicleStopped(veh) or speed < 1.0 then return 'N' end
+    if gear == 0 then return 'R' end
+    return tostring(gear)
+end
+
+CreateThread(function()
+    if not VLHud.vehicle.enabled then return end
+
+    while true do
+        local ped = cache.ped
+        local veh = GetVehiclePedIsIn(ped, false)
+        local isDriver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) == ped
+        local show = veh ~= 0 and (isDriver or not VLHud.vehicle.driverOnly)
+
+        if show and LocalPlayer.state.isLoggedIn then
+            local mps = GetEntitySpeed(veh)
+            local speed = VLHud.vehicle.useMph and (mps * 2.236936) or (mps * 3.6)
+
+            -- Engine health runs 0-1000; map it so a healthy engine reads cold.
+            local temp = 0.0
+            if VLHud.vehicle.temperatureFromEngineHealth then
+                local health = math.max(0.0, math.min(1000.0, GetVehicleEngineHealth(veh) or 1000.0))
+                temp = (1.0 - (health / 1000.0)) * 100.0
+            end
+
+            SendNUIMessage({
+                action = 'vehicle',
+                data = {
+                    show = true,
+                    speed = speed,
+                    unit = VLHud.vehicle.useMph and 'mph' or 'km/h',
+                    maxSpeed = VLHud.vehicle.maxSpeed,
+                    rpm = (GetVehicleCurrentRpm(veh) or 0.0) * VLHud.vehicle.maxRpm,
+                    maxRpm = VLHud.vehicle.maxRpm,
+                    fuel = fuelLevel(veh),
+                    temperature = temp,
+                    gear = gearLabel(veh, speed),
+                },
+            })
+            Wait(80) -- needles need a faster tick than survival status
+        elseif VLHud.vehicle.alwaysShow and LocalPlayer.state.isLoggedIn then
+            -- On foot: keep the dashboard up, with the speed needle following
+            -- the player. Nothing else has a meaningful reading.
+            local mps = GetEntitySpeed(ped)
+            local speed = VLHud.vehicle.useMph and (mps * 2.236936) or (mps * 3.6)
+
+            SendNUIMessage({
+                action = 'vehicle',
+                data = {
+                    show = true,
+                    speed = speed,
+                    unit = VLHud.vehicle.useMph and 'mph' or 'km/h',
+                    maxSpeed = VLHud.vehicle.maxSpeed,
+                    rpm = 0,
+                    maxRpm = VLHud.vehicle.maxRpm,
+                    fuel = 0,
+                    temperature = 0,
+                    gear = 'N',
+                },
+            })
+            Wait(120)
+        else
+            SendNUIMessage({ action = 'vehicle', data = { show = false } })
+            Wait(400)
+        end
+    end
+end)
+
+-- Push the config once the NUI is up so presentation rules live in one place.
+--
+-- Sent twice on purpose. The stat loop above starts reporting within ~250ms, but
+-- app.js falls back to its own defaults (every icon on) until this arrives -- so
+-- a single push at 1000ms made any icon disabled here flash on screen for a
+-- second on every restart. The first send kills that flash; the second is the
+-- safety net for the case where the NUI had not finished loading its JS yet and
+-- dropped the first message.
+CreateThread(function()
+    local payload = {
+        action = 'config',
+        data = {
+            icons = VLHud.icons,
+            thresholds = VLHud.thresholds,
+            alwaysShow = VLHud.alwaysShow,
+            stamina = VLHud.stamina,
+            breath = VLHud.breath,
+            weapon = VLHud.weapon,
+            iconFill = VLHud.iconFill,
+            fillHiddenAt = VLHud.fillHiddenAt,
+        },
+    }
+
+    SendNUIMessage(payload)
+    Wait(1000)
+    SendNUIMessage(payload)
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if GetCurrentResourceName() ~= resourceName then return end
+    DisplayRadar(true) -- never leave the player without a radar if this unloads
+end)

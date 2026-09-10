@@ -1,0 +1,305 @@
+/* =============================================================================
+   vl_panel
+
+   Restyled to match af-expeditions' design system (previously af-basebuilding).
+   Reconstructed from its compiled web/build/assets/index-D097x3pI.css -- no
+   uncompiled source ships with it:
+
+     ground / panel   #0c0c0c, panels at #0c0c0ceb
+     accent           #8ba870 -- its ONLY chromatic colour. Everything else on
+                      that resource is white at an alpha, which is why this
+                      palette is far shorter than the basebuilding one it
+                      replaces: no separate hover hue, no soft/hard pair.
+     text scale       white at .92 / .80 / .55 / .42 -- used as the whole
+                      hierarchy, in place of distinct greys
+     borders          rgba(255,255,255,.12) resting, .24 hover;
+                      rgba(139,168,112,.45) on an accent-highlighted element
+     "danger"         #c2a371 at .12 fill / .45 border -- af-expeditions' own
+                      secondary-control tan, NOT a red. It has no red anywhere,
+                      and the OFF buttons here are not errors: switching a raid
+                      or a blackout off is an ordinary action. Importing a red
+                      from another resource would have been the only way to
+                      keep the previous look, and it would have read as alien.
+     corners          8px panels / 6px inner / 4px chips -- it rounds lightly
+                      where it rounds at all, unlike basebuilding's uniform 2px
+     fonts            Bebas Neue for display, the Segoe UI system stack for
+                      body, Consolas for anything reading as machine output --
+                      the same three roles that resource uses them in
+
+   Component SHAPES (glass-wash buttons, pill-style status badges, card
+   layout) are kept as vl_panel's own -- only colour, radius and type change.
+   Rebuilding the actual component structure fresh from each af- resource's
+   own markup every time this gets re-skinned would make the panel feel like
+   a different tool each time rather than one tool wearing different palettes;
+   this is a re-skin, not a rebuild, same as every pass before it. Every
+   id/class panel.js/index.html use is untouched.
+   ============================================================================= */
+
+:root {
+    /* af-expeditions' accent. Its ONLY chromatic colour -- everything else on
+       that resource is white at an alpha, which is why the palette below is so
+       short compared with the basebuilding one it replaces. */
+    --accent: #8ba870;
+    --accent-bright: #a9c48d;
+    --accent-soft: rgba(139, 168, 112, 0.16);
+    --accent-muted: #8ba870;
+
+    /* The tan af-expeditions uses on its own secondary controls (#c2a371 at
+       .12 fill / .45 border). Kept for the OFF buttons rather than inventing a
+       red: a raid or a blackout being switched off is not an error, and this
+       resource has no red of its own to borrow. */
+    --danger: #c2a371;
+    --danger-soft: rgba(194, 163, 113, 0.12);
+
+    --text: rgba(255, 255, 255, 0.92);
+    --text-secondary: rgba(255, 255, 255, 0.8);
+    --text-muted: rgba(255, 255, 255, 0.55);
+
+    --panel-surface: rgba(12, 12, 12, 0.92);   /* its #0c0c0ceb */
+    --card-border: rgba(255, 255, 255, 0.12);
+    --card-border-hover: rgba(255, 255, 255, 0.24);
+    --card-border-active: rgba(139, 168, 112, 0.45);
+
+    /* af-expeditions rounds lightly where it rounds at all: 8px on panels,
+       6px on inner blocks, 4px on chips. Not the uniform 2px basebuilding
+       used, and not camping's 10px either. */
+    --radius: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 4px;
+
+    /* Bebas Neue for display, the system stack for body, Consolas for anything
+       that reads as machine output -- exactly the three roles af-expeditions
+       uses them in. Bebas is loaded from Google Fonts in index.html. */
+    --font-title: "Bebas Neue", "Oswald", "Arial Narrow", sans-serif;
+    --font-card-title: "Bebas Neue", "Oswald", "Arial Narrow", sans-serif;
+    --font: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: Consolas, "Courier New", monospace;
+
+    /* Bebas is condensed but not as tight as Teko, and af-expeditions leans
+       hard on tracking -- .04em on titles, .36-.44em on eyebrows. */
+    --title-tracking: 0.04em;
+}
+
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: var(--font);
+    color: var(--text);
+}
+
+#root {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 4, 5, 0.55);
+
+    /* NOT redundant. blackout.css and alert.css both set `html, body {
+       pointer-events: none }` -- correct for THEM, since a HUD/transmission
+       overlay must never eat a click meant for the game -- but CSS cascades
+       per-property, not per-stylesheet, and both load after this file. Without
+       this, that rule bleeds onto the whole page and every button/input here
+       goes dead the moment either file is present, discovered by actually
+       grepping all three stylesheets for `pointer-events` before merging
+       rather than assuming three independent overlay UIs would coexist
+       cleanly. */
+    pointer-events: auto;
+
+    /* Same cascade issue, same fix: both of those files also override
+       `html, body { font-family }` with their own vault-terminal / apocalypse
+       font, loaded after this one. Every panel element that does not set its
+       own font-family would silently inherit THAT instead of this system's
+       own -- this re-asserts it at the panel's own root rather than requiring
+       every rule below to repeat it individually. */
+    font-family: var(--font);
+}
+
+#root.hidden { display: none; }
+
+#panel {
+    width: 82vw;
+    height: 78vh;
+    max-width: 1400px;
+    display: flex;
+    background: var(--panel-surface);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    box-shadow: 0 1vh 4vh rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- menu ---- */
+
+#menu {
+    width: 22vw;
+    min-width: 300px;
+    padding: 1.2vh 1.2vw;
+    overflow-y: auto;
+    border-right: 1px solid var(--card-border);
+    display: flex;
+    flex-direction: column;
+    gap: 1vh;
+}
+
+.menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 1vh;
+    margin-bottom: 0.4vh;
+    border-bottom: 1px solid var(--card-border);
+}
+
+.menu-header .title {
+    font-family: var(--font-title);
+    font-size: 1.5vw;         /* Bebas is condensed but noticeably taller than Teko at the same size -- brought back down */
+    font-weight: 600;
+    letter-spacing: var(--title-tracking);
+    text-transform: uppercase;
+    color: var(--text);
+}
+
+.close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.4vw;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+.close:hover { opacity: 1; color: var(--danger); }
+
+.card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm);
+    padding: 0.9vh 0.9vw;
+    transition: border-color 0.15s ease;
+}
+.card:hover { border-color: var(--card-border-hover); }
+
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.7vh;
+}
+
+.card-title {
+    font-family: var(--font-card-title);
+    font-size: 0.95vw;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+
+.pill {
+    font-family: var(--font-mono);
+    font-size: 0.62vw;
+    font-weight: 700;
+    padding: 0.15vh 0.6vw;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--card-border);
+    color: var(--text-secondary);
+    letter-spacing: 0.05vw;
+}
+
+.pill.active {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.card-body { display: flex; flex-direction: column; gap: 0.5vh; }
+
+input[type="text"] {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 0.55vh 0.6vw;
+    font-size: 0.78vw;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+input[type="text"]:focus { border-color: var(--accent-muted); }
+input[type="text"]::placeholder { color: var(--text-muted); }
+
+.row { display: flex; gap: 0.5vw; margin-top: 0.2vh; }
+
+.btn {
+    flex: 1;
+    padding: 0.55vh 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    font-size: 0.75vw;
+    font-weight: 600;
+    letter-spacing: 0.03vw;
+    cursor: pointer;
+    transition: filter 0.15s ease, border-color 0.15s ease;
+}
+.btn:hover { filter: brightness(1.15); }
+.btn:active { filter: brightness(0.9); }
+
+.btn.wide { flex: none; width: 100%; }
+
+.btn.on {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-bright);
+}
+.btn.on:hover { border-color: var(--accent-muted); }
+
+.btn.off {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* --------------------------------------------------------------- radar ---- */
+
+#radar-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 1.2vh 1.2vw;
+    min-width: 0;
+}
+
+.radar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.8vh;
+}
+
+#player-count {
+    font-family: var(--font-mono);
+    font-size: 0.72vw;
+    color: var(--text-muted);
+}
+
+#radar {
+    flex: 1;
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--card-border);
+    background: rgba(10, 12, 10, 0.9);
+
+    /* Zoom/pan happens by redrawing at a different scale/offset inside this
+       SAME fixed-size canvas (see panel.js) -- never by growing the element,
+       so there is nothing here for a scrollbar to ever apply to. Explicit
+       anyway, since a canvas is drawing surface, not scrollable content. */
+    overflow: hidden;
+
+    cursor: default; /* becomes grab/grabbing once zoomed in, set in panel.js */
+}

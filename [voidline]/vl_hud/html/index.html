@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Bottom-left, middle of the stack: equipped weapon. Gun icon, durability
+         bar drawn exactly like the stamina bar below it, and the loaded round
+         count. Only on screen while a weapon is actually equipped. -->
+    <div id="weapon" class="hidden">
+        <div class="noise-spacer" id="weapon-spacer"></div>
+
+        <!-- Pistol in profile: slide with front and rear sights, dust cover,
+             raked grip, trigger guard punched out as a real opening. -->
+        <svg class="gun" viewBox="0 0 24 24">
+            <path d="M4.89 5.59L4.89 4.86L6.34 4.86L6.34 5.59L18.94 5.59L18.94 4.86L20.17 4.86L20.17 5.59L22.4 5.59L22.4 8.1L20.39 8.1L20.39 9.32L13.37 9.32C12.59 9.32 11.86 10.33 11.8 11.44C11.69 13.45 10.47 14.45 8.68 14.45L8.12 14.45L6.23 19.14L1.6 18.3L4.89 8.1Z
+                     M10.97 9.55L7.9 9.55L7.9 12.56C7.9 13.28 8.46 13.67 9.24 13.56C10.19 13.45 11.02 12.67 10.97 11.44Z"/>
+        </svg>
+
+        <div class="bar" id="durability-bar">
+            <div class="fill" id="durability-fill"></div>
+        </div>
+
+        <div class="ammo">
+            <span class="loaded" id="ammo-loaded">0</span><span class="reserve" id="ammo-reserve"></span>
+        </div>
+    </div>
+
+    <!-- Bottom-left, top of the stack: lungs icon + air bar. Only on screen
+         while the player is submerged. The leading spacer keeps this bar in the
+         same column as the ones below it, standing in for the noise arcs -- it
+         is hidden in step with them, so the rows stay aligned whether or not
+         the noise icon is enabled. -->
+    <div id="breath" class="hidden">
+        <div class="noise-spacer" id="breath-spacer"></div>
+
+        <svg class="lungs" viewBox="0 0 24 24">
+            <path d="M12 2.6v8.2"/>
+            <path d="M12 10.8c-.9-1.9-2-2.9-3.2-2.9-1.6 0-2.6 1.4-2.9 3.3l-1.1 6.4c-.2 1.4.6 2.6 1.9 2.9 1.5.3 3-.5 3.9-1.9.9-1.4 1.4-3.1 1.4-4.9z"/>
+            <path d="M12 10.8c.9-1.9 2-2.9 3.2-2.9 1.6 0 2.6 1.4 2.9 3.3l1.1 6.4c.2 1.4-.6 2.6-1.9 2.9-1.5.3-3-.5-3.9-1.9-.9-1.4-1.4-3.1-1.4-4.9z"/>
+        </svg>
+        <div class="bar">
+            <div class="fill" id="breath-fill"></div>
+        </div>
+    </div>
+
+    <!-- Bottom-left: runner icon + stamina bar (hidden while in a vehicle) -->
+    <div id="stamina">
+        <!-- Noise level: concentric arcs, quietest (innermost) to loudest -->
+        <svg class="noise" id="noise" viewBox="0 0 24 24">
+            <path class="narc" data-level="1" d="M5.29 8.72 A4 4 0 0 1 5.29 15.28"/>
+            <path class="narc" data-level="2" d="M7.02 6.27 A7 7 0 0 1 7.02 17.73"/>
+            <path class="narc" data-level="3" d="M8.74 3.81 A10 10 0 0 1 8.74 20.19"/>
+        </svg>
+
+        <!-- Sprinter, drawn as a solid silhouette rather than a stick figure:
+             at 2.4vh a filled shape holds together where thin strokes break up. -->
+        <svg class="runner" viewBox="0 0 24 24">
+            <path d="M14.45 4A2.05 2.05 0 0 1 18.55 4A2.05 2.05 0 0 1 14.45 4Z
+                     M17.67 9.04L15.21 14.53A2.05 2.05 0 0 1 11.47 12.86L13.92 7.37A2.05 2.05 0 0 1 17.67 9.04Z
+                     M14.55 10.06L11.28 11.46A1 1 0 0 1 10.49 9.62L13.77 8.22A1 1 0 0 1 14.55 10.06Z
+                     M11.5 11.2L8.69 13.77A0.9 0.9 0 0 1 7.48 12.45L10.28 9.87A0.9 0.9 0 0 1 11.5 11.2Z
+                     M16.67 7.82L20.06 9.92A1 1 0 0 1 19.01 11.62L15.62 9.52A1 1 0 0 1 16.67 7.82Z
+                     M18.64 10.67L19.11 6.69A0.9 0.9 0 0 1 20.9 6.9L20.43 10.88A0.9 0.9 0 0 1 18.64 10.67Z
+                     M13.57 14.89L10.53 18.63A1.35 1.35 0 0 1 8.44 16.93L11.48 13.19A1.35 1.35 0 0 1 13.57 14.89Z
+                     M10.03 18.74L6.29 20.84A1.1 1.1 0 0 1 5.21 18.93L8.95 16.82A1.1 1.1 0 0 1 10.03 18.74Z
+                     M6.18 20.5L4.19 21.9A0.75 0.75 0 0 1 3.33 20.67L5.32 19.27A0.75 0.75 0 0 1 6.18 20.5Z
+                     M14.84 12.65L18.82 14.98A1.35 1.35 0 0 1 17.45 17.31L13.48 14.97A1.35 1.35 0 0 1 14.84 12.65Z
+                     M19.18 16.48L17.78 20.92A1.1 1.1 0 0 1 15.68 20.25L17.08 15.82A1.1 1.1 0 0 1 19.18 16.48Z
+                     M16.98 19.88L19.66 20.81A0.75 0.75 0 0 1 19.17 22.23L16.48 21.29A0.75 0.75 0 0 1 16.98 19.88Z"/>
+        </svg>
+        <div class="bar">
+            <div class="fill" id="stamina-fill"></div>
+        </div>
+    </div>
+
+    <!-- Vehicle dashboard: twin needle gauges with small fuel/temp dials between.
+         Absolute viewBox coordinates so each needle pivots around an explicit
+         origin; nesting them in translated groups makes the origin ambiguous. -->
+    <div id="vehicle">
+        <svg viewBox="0 0 260 120">
+            <circle class="arc" id="arc-speed" cx="62"  cy="58" r="46"/>
+            <circle class="arc" id="arc-rpm"   cx="198" cy="58" r="46"/>
+            <circle class="arc small" id="arc-fuel" cx="130" cy="30" r="19"/>
+            <circle class="arc small" id="arc-temp" cx="130" cy="88" r="19"/>
+
+            <line class="needle" id="speed-needle" x1="62"  y1="58" x2="62"  y2="21"/>
+            <line class="needle" id="rpm-needle"   x1="198" y1="58" x2="198" y2="21"/>
+            <line class="needle small" id="fuel-needle" x1="130" y1="30" x2="130" y2="16"/>
+            <line class="needle small" id="temp-needle" x1="130" y1="88" x2="130" y2="74"/>
+
+            <!-- Fuel pump -->
+            <g class="dial-icon" transform="translate(125.5,25.5) scale(0.38)">
+                <path d="M2 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18M1 22h16M4.5 7h7"/>
+                <path d="M16 8l3 3v7a2 2 0 0 0 4 0V9l-3-3"/>
+            </g>
+
+            <!-- Coolant temperature -->
+            <g class="dial-icon" transform="translate(125.5,83.5) scale(0.38)">
+                <path d="M12 3v8M8.5 6h7M8.5 9h7"/>
+                <path d="M2 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/>
+            </g>
+        </svg>
+
+        <div class="readouts">
+            <div class="readout left">
+                <span class="value" id="speed-value">0</span>
+                <span class="unit" id="speed-unit">km/h</span>
+            </div>
+            <div class="readout right">
+                <span class="value"><span class="gear" id="gear-value">N</span><span id="rpm-value">0</span></span>
+                <span class="unit">r/min</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom-right: status row.
+         Each icon draws its body twice: once filled and clipped to a rect that
+         rises from the bottom (the level), and once as the outline on top. -->
+    <div id="status">
+        <!-- Grid power: permanently on screen. Sits dim while the city has
+             power, then flashes bright red for the whole blackout. Binary world
+             state, so it takes no severity ramp and no level fill. -->
+        <div class="stat power" id="stat-power">
+            <!-- Countdown while the blackout is running, e.g. "2:47". Replaces
+                 the old top-middle banner (vl_panel/config.lua VLBlackout.timer). -->
+            <span class="icon-timer hidden" id="power-blackout-timer">0:00</span>
+            <svg viewBox="0 0 24 24">
+                <path d="M13 2 4 14h6l-1 8 9-12h-6z"/>
+            </svg>
+        </div>
+
+        <!-- Threat: permanently on screen, dim until something is actively
+             hunting you, then a fast red blink. Faster than the power icon on
+             purpose, so the two alarms stay tellable apart at a glance. -->
+        <div class="stat threat" id="stat-threat">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 3.4 22 20.6H2z"/>
+                <path d="M12 9.6v4.4"/>
+                <path d="M12 17.3h.01"/>
+            </svg>
+        </div>
+
+        <!-- Microphone: lights up while transmitting -->
+        <div class="stat mic" id="stat-mic">
+            <svg viewBox="0 0 24 24">
+                <rect x="9" y="2.4" width="6" height="11" rx="3"/>
+                <path d="M5.5 11a6.5 6.5 0 0 0 13 0"/>
+                <path d="M12 17.5V21M8.6 21h6.8"/>
+            </svg>
+        </div>
+
+
+        <div class="stat-divider"></div>
+
+        <!-- Energy / stamina reserve -->
+        <div class="stat" id="stat-energy">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-energy" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-energy" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-energy" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M10 2h4v2.6l2.2 3.1c.5.7.8 1.6.8 2.5V19a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3v-8.8c0-.9.3-1.8.8-2.5L10 4.6z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-energy)" mask="url(#mask-energy)"
+                      d="M10 2h4v2.6l2.2 3.1c.5.7.8 1.6.8 2.5V19a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3v-8.8c0-.9.3-1.8.8-2.5L10 4.6z"/>
+                <path d="M10 2h4v2.6l2.2 3.1c.5.7.8 1.6.8 2.5V19a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3v-8.8c0-.9.3-1.8.8-2.5L10 4.6z"/>
+                <path d="M7 14h10"/>
+            </svg>
+        </div>
+        <!-- Hunger -->
+        <div class="stat" id="stat-hunger">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-hunger" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-hunger" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-hunger" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M12 7.5c-1-1.3-2.6-2-4.1-1.6C5.7 6.5 4.4 8.6 4.6 11c.3 4 3.2 8.4 5.6 9.4.9.4 1.7.1 1.8-.1.1.2.9.5 1.8.1 2.4-1 5.3-5.4 5.6-9.4.2-2.4-1.1-4.5-3.3-5.1-1.5-.4-3.1.3-4.1 1.6z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-hunger)" mask="url(#mask-hunger)"
+                      d="M12 7.5c-1-1.3-2.6-2-4.1-1.6C5.7 6.5 4.4 8.6 4.6 11c.3 4 3.2 8.4 5.6 9.4.9.4 1.7.1 1.8-.1.1.2.9.5 1.8.1 2.4-1 5.3-5.4 5.6-9.4.2-2.4-1.1-4.5-3.3-5.1-1.5-.4-3.1.3-4.1 1.6z"/>
+                <path d="M12 7.5c-1-1.3-2.6-2-4.1-1.6C5.7 6.5 4.4 8.6 4.6 11c.3 4 3.2 8.4 5.6 9.4.9.4 1.7.1 1.8-.1.1.2.9.5 1.8.1 2.4-1 5.3-5.4 5.6-9.4.2-2.4-1.1-4.5-3.3-5.1-1.5-.4-3.1.3-4.1 1.6z"/>
+                <path d="M12 7.5V4.4M12 4.4c1.1-.2 2-1.1 2.2-2.4-1.2.1-2.1.9-2.2 2.4z"/>
+            </svg>
+        </div>
+        <!-- Thirst (swapped ahead of temperature) -->
+        <div class="stat" id="stat-thirst">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-thirst" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-thirst" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-thirst" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M12 2.8s-5.9 6.5-5.9 10.4A5.9 5.9 0 0 0 17.9 13.2C17.9 9.3 12 2.8 12 2.8z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-thirst)" mask="url(#mask-thirst)"
+                      d="M12 2.8s-5.9 6.5-5.9 10.4A5.9 5.9 0 0 0 17.9 13.2C17.9 9.3 12 2.8 12 2.8z"/>
+                <path d="M12 2.8s-5.9 6.5-5.9 10.4A5.9 5.9 0 0 0 17.9 13.2C17.9 9.3 12 2.8 12 2.8z"/>
+            </svg>
+        </div>
+        <!-- Temperature (swapped after thirst) -->
+        <div class="stat" id="stat-temperature">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-temperature" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-temperature" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-temperature" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M10 14.2V4.5a2 2 0 1 1 4 0v9.7a4 4 0 1 1-4 0z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-temperature)" mask="url(#mask-temperature)"
+                      d="M10 14.2V4.5a2 2 0 1 1 4 0v9.7a4 4 0 1 1-4 0z"/>
+                <path d="M10 14.2V4.5a2 2 0 1 1 4 0v9.7a4 4 0 1 1-4 0z"/>
+                <path d="M12 8.5v6.2"/>
+            </svg>
+        </div>
+        <div class="stat-divider"></div>
+
+        <!-- Sleep: crescent moon, drains toward red the more exhausted the
+             player gets (basic_needs' sleep value inverted before it gets here) -->
+        <div class="stat" id="stat-sleep">
+            <!-- Countdown while fainted, e.g. "2:47". Hidden the rest of the time. -->
+            <span class="icon-timer hidden" id="sleep-faint-timer">0:00</span>
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-sleep" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-sleep" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-sleep" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M20.2 14.4A8.5 8.5 0 1 1 9.7 3.9a7 7 0 0 0 10.5 10.5z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-sleep)" mask="url(#mask-sleep)"
+                      d="M20.2 14.4A8.5 8.5 0 1 1 9.7 3.9a7 7 0 0 0 10.5 10.5z"/>
+                <path d="M20.2 14.4A8.5 8.5 0 1 1 9.7 3.9a7 7 0 0 0 10.5 10.5z"/>
+            </svg>
+        </div>
+        <!-- Poop: stomach silhouette (pouch + duodenum curl) -->
+        <div class="stat" id="stat-poop">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-poop" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-poop" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-poop" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M9.3 2.2c-.8-.3-1.6.3-1.5 1.1.3 2.1.1 3.6-.7 4.4-.9.9-1.6 1-2.5 2C3.6 10.9 3 12.6 3 14.5 3 18.1 5.9 21 9.5 21c1.9 0 3.5-.8 4.7-2 .8.6 1.8.9 2.8.7 2-.4 3.3-2.3 2.9-4.2-.3-1.4-1.4-2.4-2.7-2.7.3-.6.4-1.3.3-2-.3-1.7-1.8-2.9-3.5-2.8-.1-1.5-.6-2.9-1.5-4-.6-.7-1.6-1.4-2.7-1.8z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-poop)" mask="url(#mask-poop)"
+                      d="M9.3 2.2c-.8-.3-1.6.3-1.5 1.1.3 2.1.1 3.6-.7 4.4-.9.9-1.6 1-2.5 2C3.6 10.9 3 12.6 3 14.5 3 18.1 5.9 21 9.5 21c1.9 0 3.5-.8 4.7-2 .8.6 1.8.9 2.8.7 2-.4 3.3-2.3 2.9-4.2-.3-1.4-1.4-2.4-2.7-2.7.3-.6.4-1.3.3-2-.3-1.7-1.8-2.9-3.5-2.8-.1-1.5-.6-2.9-1.5-4-.6-.7-1.6-1.4-2.7-1.8z"/>
+                <path d="M9.3 2.2c-.8-.3-1.6.3-1.5 1.1.3 2.1.1 3.6-.7 4.4-.9.9-1.6 1-2.5 2C3.6 10.9 3 12.6 3 14.5 3 18.1 5.9 21 9.5 21c1.9 0 3.5-.8 4.7-2 .8.6 1.8.9 2.8.7 2-.4 3.3-2.3 2.9-4.2-.3-1.4-1.4-2.4-2.7-2.7.3-.6.4-1.3.3-2-.3-1.7-1.8-2.9-3.5-2.8-.1-1.5-.6-2.9-1.5-4-.6-.7-1.6-1.4-2.7-1.8z"/>
+            </svg>
+        </div>
+        <!-- Pee: wall-mounted urinal silhouette, distinct from the thirst droplet -->
+        <div class="stat" id="stat-pee">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-pee" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-pee" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-pee" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M7.5 2h9a1 1 0 0 1 1 1v1.5a1 1 0 0 1-.3.7L15.5 7v2.3c1.5.6 2.5 2.1 2.5 3.8 0 2.3-1.8 4.1-4 4.4v1a2.5 2.5 0 0 1-5 0v-1c-2.2-.3-4-2.1-4-4.4 0-1.7 1-3.2 2.5-3.8V7L5.3 5.2A1 1 0 0 1 5 4.5V3a1 1 0 0 1 1-1z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-pee)" mask="url(#mask-pee)"
+                      d="M7.5 2h9a1 1 0 0 1 1 1v1.5a1 1 0 0 1-.3.7L15.5 7v2.3c1.5.6 2.5 2.1 2.5 3.8 0 2.3-1.8 4.1-4 4.4v1a2.5 2.5 0 0 1-5 0v-1c-2.2-.3-4-2.1-4-4.4 0-1.7 1-3.2 2.5-3.8V7L5.3 5.2A1 1 0 0 1 5 4.5V3a1 1 0 0 1 1-1z"/>
+                <path d="M7.5 2h9a1 1 0 0 1 1 1v1.5a1 1 0 0 1-.3.7L15.5 7v2.3c1.5.6 2.5 2.1 2.5 3.8 0 2.3-1.8 4.1-4 4.4v1a2.5 2.5 0 0 1-5 0v-1c-2.2-.3-4-2.1-4-4.4 0-1.7 1-3.2 2.5-3.8V7L5.3 5.2A1 1 0 0 1 5 4.5V3a1 1 0 0 1 1-1z"/>
+            </svg>
+        </div>
+        <div class="stat-divider"></div>
+
+        <!-- Armour: only appears while you actually have some -->
+        <div class="stat" id="stat-armour">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-armour" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-armour" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-armour" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-armour)" mask="url(#mask-armour)"
+                      d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6z"/>
+                <path d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6z"/>
+            </svg>
+        </div>
+        <!-- Health -->
+        <div class="stat" id="stat-health">
+            <svg viewBox="0 0 24 24">
+                <defs><clipPath id="clip-health" clipPathUnits="userSpaceOnUse">
+                    <rect id="rect-health" x="0" y="24" width="24" height="0"/>
+                </clipPath>
+                      <mask id="mask-health" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                          <path class="fill-mask" d="M9.2 3h5.6v6.2H21v5.6h-6.2V21H9.2v-6.2H3V9.2h6.2z"/>
+                      </mask></defs>
+                <path class="body-fill" clip-path="url(#clip-health)" mask="url(#mask-health)"
+                      d="M9.2 3h5.6v6.2H21v5.6h-6.2V21H9.2v-6.2H3V9.2h6.2z"/>
+                <path d="M9.2 3h5.6v6.2H21v5.6h-6.2V21H9.2v-6.2H3V9.2h6.2z"/>
+            </svg>
+        </div>
+    </div>
+
+<script src="app.js"></script>
+</body>
+</html>

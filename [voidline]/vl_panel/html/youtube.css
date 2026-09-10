@@ -1,0 +1,27 @@
+/* =============================================================================
+   vl_panel -- YouTube broadcast overlay
+
+   Fullscreen, above everything else (including the admin panel itself, which
+   only the triggering admin sees anyway), no chrome of its own -- the video
+   is the entire screen for every player it is shown to.
+   ============================================================================= */
+
+#youtube-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: #000;
+    pointer-events: none; /* passive layer -- never blocks the game underneath */
+}
+
+#youtube-overlay[hidden] {
+    display: none;
+}
+
+#youtube-frame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}

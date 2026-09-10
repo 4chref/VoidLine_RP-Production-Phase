@@ -1,0 +1,61 @@
+name: Build UI and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release'
+        required: true
+        type: string
+      release_description:
+        description: 'Description for the release'
+        required: false
+        type: string
+        default: 'Automatic release created by GitHub Actions'
+    
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22.6.0'
+
+      - name: Install dependencies
+        run: npm install --prefix web
+
+      - name: Build UI
+        run: npm run build --prefix web
+
+      - name: Clean up unnecessary files
+        run: |
+          find web/ -mindepth 1 -maxdepth 1 ! -name 'build' -exec rm -rf {} +
+
+      - name: Create a zip archive
+        run: |
+          zip -r p-clothing.zip . -x "*.git/*" -x ".github/*"
+
+      - name: Create Tag
+        run: git tag ${{ github.event.inputs.tag_name || github.ref_name }}
+
+      - name: Push Tag
+        run: git push origin ${{ github.event.inputs.tag_name || github.ref_name }}
+
+      - name: Create GitHub Release
+        uses: marvinpinto/action-automatic-releases@v1.2.1
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          automatic_release_tag: ${{ github.event.inputs.tag_name || github.ref_name }}
+          title: ${{ github.event.inputs.tag_name || github.ref_name }}
+          body: ${{ github.event.inputs.release_description || 'Automatic release created by GitHub Actions' }}
+          files: p-clothing.zip
+          draft: false
+          prerelease: false

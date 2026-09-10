@@ -1,0 +1,505 @@
+Config = {}
+
+-- =============================================================================
+-- GENERAL / DEBUG
+-- =============================================================================
+
+Config.Debug = false -- draws state, target, distance, HP, LKP, radius, task, velocity, patrol point above every drone, and logs state changes to console
+
+-- =============================================================================
+-- DRONE ENTITY
+-- =============================================================================
+-- The drone is a genuine GTA PED (CreatePed), not an object/prop. Since peds
+-- have no native "flight" task, we simulate flight by disabling the ped's
+-- gravity/ragdoll response and driving its position with our own velocity
+-- integrator (see client/movement.lua). Everything related to shooting is
+-- still handled by real ped weapon natives (GiveWeaponToPed, TaskShootAtEntity,
+-- TaskCombatPed) so damage/ammo/impacts are all genuine GTA weapon damage,
+-- never simulated.
+
+-- =============================================================================
+-- FLIGHT MODE
+-- =============================================================================
+-- 'piloted' -- The drone is the add-on VEHICLE with a hidden ped pilot sitting
+--              in the driver seat. The vehicle is what flies and what takes
+--              damage, and it fires the model's own VEHICLE weapon. Needs
+--              droneweapons.meta loaded (vl_drone_model does this).
+--
+-- 'shell'   -- The drone is a PED that flies and fires a ped weapon, with the
+--              vehicle model attached to it as purely cosmetic bodywork.
+--
+-- Both modes share the same detection / targeting / state machine / patrol AI;
+-- only the entity being flown and the way it shoots differ.
+Config.FlightMode = 'piloted'
+
+Config.Piloted = {
+    vehicleWeapon = `VEHICLE_WEAPON_DRONE`, -- from the add-on's droneweapons.meta
+    hidePilot = true,      -- hide the ped in the driver seat so it reads as unmanned
+    holdHoverNozzle = true, -- VTOL models (this one is Hydra-based) must be held in hover mode
+    keepLevel = true,      -- lock pitch/roll to 0 so the drone hovers flat instead of tumbling
+}
+
+-- The ped model used for the pilot / the flying ped, depending on mode.
+-- Do NOT put a vehicle model here -- CreatePed only accepts ped models.
+-- The drone's LOOK comes from Config.Visual.model below.
+Config.DroneModel = `mp_m_freemode_01`
+
+-- =============================================================================
+-- VISUAL SHELL
+-- =============================================================================
+-- Most "drone" models (including the Oblivion drone) ship as VEHICLE add-ons,
+-- which cannot be spawned as a ped. So the ped stays as the invisible brain and
+-- the model is attached to it as a purely cosmetic shell.
+--
+-- The shell is created LOCALLY on each client (not networked): it hangs off the
+-- networked ped, so its position/rotation sync through the ped for free and
+-- there is no second networked entity whose ownership has to be managed.
+
+Config.Visual = {
+    enabled = true,
+    model = `drone166`,             -- Oblivion drone from the add-on (`bubbleship` is the other model in that pack)
+    hidePed = true,                 -- hide the ped so only the shell is visible
+    offset = vector3(0.0, 0.0, 0.0),   -- shell position relative to the ped
+    rotation = vector3(0.0, 0.0, 0.0), -- shell rotation relative to the ped
+}
+
+Config.Weapon = {
+    -- HOW the drone shoots:
+    --   'vehicle' -- fires the DRONE MODEL'S OWN mounted weapon
+    --               (VEHICLE_WEAPON_DRONE from vl_drone_model's
+    --               droneweapons.meta) out of the model's real weapon bones.
+    --               Correct muzzle flash, jet tracers, turret audio and damage
+    --               profile, and unlike the AI turret task it cannot be
+    --               silently broken by seat/turret bindings. Piloted mode only;
+    --               falls back to 'direct' behaviour for flying peds.
+    --   'direct'  -- fires real bullets with ShootSingleBulletBetweenCoords,
+    --               straight from the drone at the target, using a handheld
+    --               weapon hash. Works in both flight modes.
+    --   'task'    -- asks the game AI to shoot (TaskVehicleShootAtPed +
+    --               SetVehicleShootAtTarget when piloted, TaskShootAtEntity
+    --               otherwise). The most "native" option, but it depends on the
+    --               vehicle's weapon being correctly bound to the seat and the
+    --               task surviving our steering.
+    fireMethod = 'vehicle',
+
+    -- Used by fireMethod = 'vehicle'.
+    vehicle = {
+        weapon = `VEHICLE_WEAPON_DRONE`,            -- defined in vl_drone_model/data/droneweapons.meta
+        fallbackWeapon = `VEHICLE_WEAPON_PLAYER_LAZER`, -- stock, exists in every build: used if the add-on meta didn't load
+        -- Tried in order; the first bones the model actually has are used as
+        -- muzzles. If the model has none of them, muzzleOffset is used instead.
+        muzzleBones = {
+            'weapon_1a', 'weapon_1b', 'weapon_1c', 'weapon_1d',
+            'turret_muzzle_1', 'turret_muzzle_2', 'gun_muzzle', 'weapon_2a',
+        },
+        muzzleOffset = vector3(0.0, 2.0, -0.35), -- fallback muzzle, relative to the hull (y = forward)
+        muzzleClearance = 0.6,   -- metres the shot starts ahead of the bone, so the hull can't eat its own round
+        alternateMuzzles = true, -- cycle mounts so a twin-gun model fires from both sides
+    },
+
+    -- WHAT it shoots (used by fireMethod = 'direct'):
+    --   'laser'  -- Doomsday Heist energy weapons: visible glowing bolts.
+    --   'bullet' -- conventional gunfire + tracers.
+    style = 'bullet',
+    laserHash = `WEAPON_RAYMINIGUN`,   -- used when style = 'laser'
+    hash = `WEAPON_ASSAULTRIFLE`,      -- used when style = 'bullet': clear tracers, dependable damage
+    fallbackHash = `WEAPON_ASSAULTRIFLE`,
+
+    -- HOW damage is applied:
+    --   'native' -- a real GTA bullet is fired and the GAME applies the damage,
+    --              exactly as an NPC shooting you would. Most reliable, and
+    --              works on other players without any custom networking.
+    --   'script' -- we raycast along the shot ourselves and apply the damage
+    --              manually (relayed through the server for remote players).
+    --              Use only if native bullets somehow don't register.
+    damageMode = 'native',
+
+    -- The laser BEAM is drawn by this resource, so it does not depend on any
+    -- weapon asset, vehicle metadata or game version -- if the drone fires, the
+    -- beam is visible.
+    laserBeam = {
+        enabled = false, -- set true (with style = 'laser') for the drawn energy beam
+        -- A convincing laser is a white-hot core inside a coloured glow.
+        coreColor = { r = 255, g = 255, b = 255, a = 255 }, -- inner core
+        color     = { r = 60,  g = 255, b = 130, a = 220 }, -- glow; try {255,60,60} for red
+        coreWidth = 0.02,
+        width     = 0.07,  -- inner glow radius
+        outerWidth = 0.16, -- outer halo radius (drawn fainter)
+        durationMs = 130,  -- how long each bolt stays on screen (must exceed one frame)
+        fade = true,       -- fade the bolt out over its lifetime instead of popping off
+        muzzleLight = true,-- point light at the muzzle
+        impactLight = true,-- point light + sparks where the beam lands
+        lightRange = 4.0,
+        lightIntensity = 3.0,
+    },
+
+    -- Damage per hit. Hits are resolved by an actual raycast along the beam, so
+    -- shots that the spread throws wide genuinely miss. A 900ms burst lands
+    -- roughly 9 shots, so 10 here is about 90 damage per sustained burst
+    -- against a 200hp player.
+    damagePerShot = 10,
+    shotInterval = 100,        -- ms between individual shots inside a burst
+    spread = 0.4,              -- metres of random scatter at the target (0 = pinpoint)
+    bulletSpeed = 2000.0,
+    audible = true,            -- play the weapon's report
+    -- Shots leave from this far along the line toward the target. Must exceed
+    -- the drone hull's radius, or it shoots its own bodywork. Raise it if the
+    -- drone seems to be damaging itself or shots stop short.
+    muzzleDistance = 3.0,
+    muzzleVerticalOffset = -0.3, -- slight drop so fire comes from under the hull
+
+    ammo = 9999,
+    infiniteAmmo = true,       -- refills ammo every combat tick so the drone never has to reload
+    accuracy = 55,             -- 0-100, passed to SetPedAccuracy
+    shootRate = 100,           -- 0-1000, passed to SetPedShootRate
+    burstCount = 3,            -- rounds fired per burst (approximate, based on burst duration)
+    burstDuration = 900,       -- ms one burst lasts
+    burstCooldownMin = 600,    -- ms of no-firing between bursts (min)
+    burstCooldownMax = 1400,   -- ms of no-firing between bursts (max)
+    firingPattern = `FIRING_PATTERN_BURST_FIRE_DRIVEBY`,
+    maxFiringDistance = 60.0,  -- max distance the drone will open fire at (matches Detection.radius: it shoots anything it can see)
+    taskReissueInterval = 200, -- ms between re-issuing the shoot task mid-burst ('task' mode only)
+}
+
+Config.Health = 500
+Config.Armor = 100
+
+-- =============================================================================
+-- WARNING / CHALLENGE
+-- =============================================================================
+-- The drone challenges before it kills: on spotting a player it holds fire,
+-- shadows them at standoff range with its alert sounding, and puts a countdown
+-- on THAT player's screen. Only when the countdown expires does it open fire.
+--
+-- The countdown clock lives on the SERVER (see server.lua), because the drone's
+-- AI can migrate between clients mid-countdown and a client-side timer would
+-- silently restart every time it did.
+
+Config.Warning = {
+    enabled = true,
+
+    duration = 12000,  -- ms the player gets to clear the area
+    message = 'LEAVE THE AREA OR YOU WILL BE ELIMINATED',
+    subMessage = 'TARGET LOCKED — COMPLIANCE REQUIRED',
+    tag = 'AUTOMATED DEFENCE DRONE',
+
+    -- Shown the instant the countdown runs out and the drone opens fire, so the
+    -- transition reads as the drone committing rather than the HUD just
+    -- disappearing at zero.
+    expiredMessage = 'ELIMINATION AUTHORIZED',
+    expiredSubMessage = 'ENGAGING',                    -- shown when the drone does it itself
+    expiredStrikeSubMessage = 'MISSILE STRIKE INBOUND', -- shown when Config.Strike is what answers
+    expiredDisplayMs = 3400,
+
+    -- Getting this far from the drone cancels the warning and the drone stands
+    -- down. Deliberately smaller than Detection.radius so that walking away
+    -- actually works instead of merely staying "seen but distant".
+    clearRadius = 55.0,
+
+    -- Once a countdown expires, that player is flagged: every drone engages
+    -- them on sight with no second warning until the flag lapses. Without this
+    -- a player could farm warnings forever by stepping in and out of range.
+    flagDuration = 90000,
+
+    heartbeatInterval = 1000, -- ms between "still warning them" pings to the server
+    staleTimeout = 3000,      -- ms without a ping before the server tears the warning down
+
+    -- Extra ms the CONTROLLING client waits past `duration` before deciding the
+    -- countdown expired on its own. The server normally declares the expiry
+    -- first (so the on-screen countdown reaches zero exactly as the drone opens
+    -- fire); this is the safety net that keeps the drone able to shoot even if
+    -- the server relay or the NUI page is broken. See Warning.Evaluate.
+    localGrace = 1500,
+
+    -- How the drone flies while warning: a slow menacing orbit, weapons cold.
+    standoffDistance = 13.0,
+    hoverHeightOffset = 7.0,
+    orbitSpeed = 0.35,   -- radians/sec
+    speedFactor = 0.85,  -- fraction of Movement.maxSpeed used while shadowing
+}
+
+-- =============================================================================
+-- AIRSTRIKE (what happens when the countdown expires)
+-- =============================================================================
+-- The drone is the spotter, not the executioner. When the countdown runs out it
+-- breaks off and leaves, and missiles come down on the target from the sky.
+--
+-- Set enabled = false to go back to the drone gunning the target down itself
+-- with its own weapon instead (it will ENGAGE rather than WITHDRAW).
+
+Config.Strike = {
+    enabled = true,
+
+    count = 5,             -- missiles per salvo
+    interval = 750,        -- ms between missiles
+    -- ms after the countdown expires before the first missile is committed.
+    -- Must be comfortably longer than the drone needs to clear its own blast
+    -- radius -- it is withdrawing at Movement.maxSpeed while this runs.
+    delay = 2200,
+
+    spawnHeight = 130.0,   -- metres above the impact point the missiles launch from
+    launchJitter = 6.0,    -- horizontal scatter of the launch point, so they don't share one vertical line
+    spread = 4.5,          -- metres of scatter around the target for each impact
+    speed = 220.0,         -- projectile speed
+    damage = 200,
+
+    -- Each missile is aimed when it is FIRED, from the target's position at that
+    -- moment, not all at once when the strike is called. Lead stops a straight
+    -- sprint being a free escape; keep it well under 1.0 so changing direction
+    -- still beats it.
+    leadTarget = true,
+    leadFactor = 0.55,
+
+    -- The telegraph: how long the ground marker shows before that missile
+    -- launches. This is the player's actual reaction window -- lower it to make
+    -- the strike harsher, raise it to make it more survivable.
+    markerLeadTime = 1000,
+
+    -- How long a player is safe from a repeat salvo. Without this, a flagged
+    -- player re-acquired by any drone gets struck again immediately.
+    cooldown = 30000,
+
+    -- How the drone leaves. It keeps its siren running while it goes.
+    withdrawTime = 9000,    -- ms spent leaving before returning to patrol
+    withdrawAltitude = 45.0,-- metres of altitude gained while leaving
+
+    -- Used only if neither rocket asset streams in, so a missing weapon asset
+    -- degrades to "the explosion still happens" rather than to nothing at all.
+    explosionFallback = true,
+    explosionType = 4,      -- EXP_TAG_ROCKET
+    explosionScale = 1.0,
+    cameraShake = 1.0,
+
+    weapon = `WEAPON_AIRSTRIKE_ROCKET`,
+    fallbackWeapon = `WEAPON_VEHICLE_ROCKET`,
+
+    marker = {
+        enabled = true,
+        drawDistance = 150.0, -- don't bother drawing telegraphs further away than this
+        startRadius = 6.0,    -- the ring closes in as impact approaches
+        endRadius = 1.6,
+        height = 1.9,
+        slowBlinkHz = 2.0,    -- flashing accelerates toward impact
+        fastBlinkHz = 9.0,
+        alphaOn = 170,
+        alphaOff = 45,
+        color = { r = 255, g = 40, b = 20 },
+    },
+}
+
+-- =============================================================================
+-- ALERT SOUND
+-- =============================================================================
+-- Played from the drone itself and spatialised with the Web Audio API in
+-- html/index.html, so it attenuates with distance and pans as the drone circles
+-- you. It follows the drone while it moves because the position is streamed
+-- from the live entity, not baked in at play time.
+--
+-- Everyone nearby hears it, not just whoever's client is running the AI: siren
+-- state is relayed through the server and rendered locally on each client.
+
+Config.Alert = {
+    enabled = true,
+    sound = 'alert.mp3',  -- relative to html/
+    loop = true,
+    volume = 0.5,
+
+    refDistance = 10.0,   -- metres within which it plays at full volume
+    maxDistance = 110.0,  -- metres beyond which it is inaudible
+    rolloff = 1.15,       -- how sharply it falls off between the two
+
+    updateInterval = 70,  -- ms between position updates (the page eases between them)
+    fadeOutMs = 260,      -- fade when the drone stands down or is destroyed
+}
+
+-- =============================================================================
+-- DETECTION
+-- =============================================================================
+
+Config.Detection = {
+    radius = 60.0,              -- max distance the drone can ever notice a target at
+    fov = 130.0,                -- degrees, full cone width (not half-angle)
+    scanInterval = 1000,        -- ms between full-area target scans
+    losRefreshInterval = 100,   -- ms between line-of-sight re-traces on the CURRENT target (the flight tick asks every frame; this is what it actually costs). Lower = twitchier reaction to breaking cover, higher = cheaper.
+    losCheckInterval = 400,     -- ms between line-of-sight re-checks on the current/candidate target
+    requireLineOfSight = true,  -- if false, drone can "hear"/track through walls (not recommended)
+    detectNpcs = false,         -- also consider hostile NPCs (not just players) as targets
+    movementBonusRadius = 15.0, -- targets that are sprinting/shooting are easier to notice within this extra radius
+    confirmDuration = 1200,     -- ms a freshly-spotted, non-urgent target is treated as INVESTIGATING before full TRACKING/ENGAGING commitment
+}
+
+-- =============================================================================
+-- TARGETING / TARGET LOCK
+-- =============================================================================
+-- Priority is evaluated top to bottom; the first matching rule with the
+-- highest weight wins. All are configurable/reorderable.
+
+Config.TargetPriority = {
+    { kind = 'attacker',        weight = 1000 }, -- whoever is currently shooting at / meleeing the drone
+    { kind = 'damager',         weight = 900  }, -- last player who damaged the drone (even if not currently attacking)
+    { kind = 'weaponHolder',    weight = 500, weapons = { `WEAPON_ASSAULTRIFLE`, `WEAPON_CARBINERIFLE`, `WEAPON_SNIPERRIFLE`, `WEAPON_RPG` } },
+    { kind = 'closestHostile',  weight = 300 },
+    { kind = 'hostileNpc',      weight = 100 },
+}
+
+Config.TargetLock = {
+    switchCooldown = 4000,      -- ms minimum before the drone is allowed to swap to a different, lower/equal priority target
+    forceSwitchPriorityDelta = 400, -- a candidate can interrupt the lock early if its score beats current by this much
+}
+
+Config.TargetMemoryDuration = 30000 -- ms a lost target's last known position/identity is remembered at all
+
+-- =============================================================================
+-- COMBAT
+-- =============================================================================
+
+Config.Combat = {
+    engagementDistanceMin = 8.0,
+    engagementDistanceMax = 22.0,
+    hoverHeightOffset = 4.5,     -- meters above target's Z the drone tries to hold while fighting
+    repositionInterval = 5000,   -- ms between choosing a new attack angle/altitude
+    strafeChance = 0.5,          -- chance per reposition to strafe instead of holding position
+    orbitChance = 0.35,          -- chance per reposition to orbit instead of strafe/hold
+    coverBreakLOSGrace = 800,    -- ms of lost LOS tolerated before the drone stops firing (avoids stopping on a single frame flicker)
+    aggressiveness = 'balanced', -- 'defensive' | 'balanced' | 'aggressive' -- affects distance & flank likelihood
+}
+
+-- =============================================================================
+-- MOVEMENT / FLIGHT
+-- =============================================================================
+
+Config.Movement = {
+    maxSpeed = 9.0,          -- m/s
+    acceleration = 4.0,      -- m/s^2 while speeding up
+    deceleration = 8.0,      -- m/s^2 while slowing down (must exceed acceleration, or it can't stop for obstacles it drove into)
+    minAltitudeAboveGround = 4.0,
+    maxAltitudeAboveGround = 90.0,
+    patrolHoverHeight = 20.0,   -- default cruise height above ground while patrolling/idle
+    turnRateDegPerSec = 220.0,  -- how fast the drone can re-face a direction
+    orbitRadius = 12.0,
+    orbitAngularSpeed = 0.55,   -- radians/sec
+
+    -- Extra metres of altitude added to a target-following destination while
+    -- something is between the drone and its target. Going over an obstruction
+    -- is what restores line of sight in a city; going around rarely does.
+    blockedClimbBoost = 9.0,
+
+    -- Scraping scenery shouldn't write off an armed drone, but it must still be
+    -- shootable. This sets ONLY the collision proof: bullets, fire and
+    -- explosions all still damage it exactly as before.
+    collisionProof = true,
+
+    -- Cadence of the "is the destination inside a building" probe. Cached
+    -- between refreshes, and re-run early whenever the destination jumps more
+    -- than destProbeMoveThreshold metres.
+    destProbeInterval = 400,
+    destProbeMoveThreshold = 6.0,
+}
+
+-- =============================================================================
+-- OBSTACLE AVOIDANCE
+-- =============================================================================
+-- The drone probes with a CAPSULE the width of its own hull, not a hairline
+-- ray, and it brakes as well as steers -- steering alone cannot stop a 9 m/s
+-- drone that has already committed to a wall.
+
+Config.ObstacleAvoidance = {
+    checkDistance = 18.0,    -- maximum probe distance
+    minLookahead = 7.0,      -- minimum probe distance, even at a standstill
+    lookaheadTime = 1.8,     -- seconds of travel probed ahead (look-ahead scales with speed)
+    hullPadding = 1.2,       -- metres added to the model's own radius, so it clears corners rather than grazing them
+    probeCount = 8,          -- horizontal directions sampled when searching for a way around
+    probePitches = { 0.0, 0.5, -0.3 }, -- radians; level, climbing, descending
+    updateInterval = 100,    -- ms between obstacle probes (per drone). Shape tests are the most expensive thing here.
+    surfaceProbeDepth = 220.0, -- how far down to look for the ground/roof beneath the drone
+
+    avoidanceStrength = 6.0, -- how strongly avoidance steers vs the desired path
+    pushWeight = 1.4,        -- weight of "push straight off the surface"
+    slideWeight = 1.0,       -- weight of "slide along the surface" (set to 0 to only ever back away)
+    escapeWeight = 1.6,      -- weight of the searched way-around direction
+    wallSlide = true,
+
+    escapeSearchFraction = 0.7, -- run the way-around search once an obstacle is inside this fraction of the look-ahead
+    headingBias = 0.5,       -- how much a candidate direction is rewarded for pointing where we wanted to go
+    climbBias = 0.35,        -- how much upward candidates are preferred (up is almost always the way out of a city)
+
+    emergencyDistance = 5.0,  -- inside this, the drone brakes hard and refuses to steer into the surface at all
+    minBrakeFactor = 0.12,    -- speed multiplier at emergencyDistance
+    emergencyDecelMultiplier = 2.2, -- braking gets this much sharper while blocked
+    separationSpeed = 1.5,    -- m/s pushed back off a surface it is already touching
+    ceilingClearance = 5.0,   -- climbing is only offered as an escape if there is this much room above
+
+    -- "Commanded to move but not actually moving" -- wedged in an alley, caught
+    -- under an awning. No amount of steering fixes that; a forced climb does.
+    stuckSpeed = 0.6,          -- m/s below which the drone counts as not moving
+    stuckCheckInterval = 400,  -- ms between displacement samples
+    stuckTime = 1600,          -- ms of being stuck before an escape is forced
+    stuckDuration = 2500,      -- ms the forced escape is flown for
+}
+
+-- =============================================================================
+-- TARGET LOSS / SEARCH
+-- =============================================================================
+
+Config.Search = {
+    duration = 20000,   -- ms spent searching before giving up and returning to patrol
+    radius = 14.0,      -- radius around last known position to search
+    waypoints = 5,       -- number of points sampled around the LKP
+    waypointDwell = 1800,-- ms spent "looking" at each search waypoint
+}
+
+-- =============================================================================
+-- DAMAGE / SELF-PRESERVATION
+-- =============================================================================
+
+Config.Damage = {
+    retreatHealthPercent = 35,     -- below this %, drone tries to gain distance/altitude while still fighting
+    criticalHealthPercent = 15,    -- below this %, drone disengages and flees
+    criticalAltitudeBoost = 18.0,  -- extra altitude gained when critical
+    callBackupOnCritical = true,
+    backupCallRadius = 120.0,      -- other drones within this radius are alerted
+}
+
+-- =============================================================================
+-- PATROL
+-- =============================================================================
+
+Config.PatrolPoints = {
+    vector3(100.0, 100.0, 50.0),
+    vector3(150.0, 120.0, 60.0),
+    vector3(200.0, 90.0, 55.0),
+}
+
+Config.PatrolSpeedFactor = 0.5 -- fraction of Config.Movement.maxSpeed used while patrolling (calmer than combat)
+Config.PatrolWaitTime = 3000   -- ms paused at each patrol point
+
+-- =============================================================================
+-- SQUAD COORDINATION
+-- =============================================================================
+
+Config.Squad = {
+    enabled = true,
+    coordinationRadius = 90.0, -- drones within this range of each other coordinate roles on a shared target
+    minSeparation = 7.0,       -- drones steer apart if closer than this to avoid stacking
+    roles = { 'engage', 'flank', 'ranged' }, -- cycled among drones sharing a target
+}
+
+-- =============================================================================
+-- UPDATE INTERVALS (perf tuning)
+-- =============================================================================
+
+Config.Intervals = {
+    stateMachine = 250,     -- ms, high-level decision tick
+    movementActive = 0,     -- ms, movement integration tick while a drone is actively flying (0 = every frame)
+    movementIdle = 500,     -- ms, movement tick while stationary/hovering with nothing to do
+    patrolDecision = 1000,  -- ms
+    searchDecision = 500,   -- ms
+    debugDraw = 0,          -- ms, 0 = every frame (only runs at all if Config.Debug)
+}
+
+-- =============================================================================
+-- SPAWNING
+-- =============================================================================
+
+Config.SpawnDistanceFromPlayer = 10.0 -- how far in front of the player /spawndrone places the drone
+Config.MaxDronesPerPlayerCommand = 20 -- safety cap tracked client-side

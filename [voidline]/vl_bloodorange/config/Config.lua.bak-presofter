@@ -1,0 +1,396 @@
+-- ════════════════════════════════════════════════════════════════════════════
+--  BLOOD ORANGE  —  apocalyptic weather / timecycle preset
+-- ════════════════════════════════════════════════════════════════════════════
+--  This resource does NOT own the weather. vl_dynamicweather stays the single
+--  weather+time authority (server-wide, self-healing, per-zone). This resource
+--  only paints the atmosphere on top whenever the synced weather equals
+--  Config.TriggerWeather, so every player in that zone sees the exact same sky.
+-- ════════════════════════════════════════════════════════════════════════════
+
+BO = {}
+
+-- ─── LINK TO THE WEATHER PANEL ──────────────────────────────────────────────
+
+-- Resource folder name of the dynamic weather script (the /weatherpanel one).
+BO.WeatherResource = 'vl_dynamicweather'
+
+-- GTA only accepts 15 weather names, and the panel is locked to that list, so
+-- BLOOD ORANGE takes over one slot. HALLOWEEN is the throwaway slot: it is
+-- renamed to "Blood Orange" in vl_dynamicweather/locale/*.lua and given a new
+-- icon, so in /weatherpanel it simply reads and behaves as its own weather.
+-- Change this if you would rather sacrifice a different slot (SMOG is the other
+-- good candidate) -- then rename that key in the locale files instead.
+BO.TriggerWeather = 'HALLOWEEN'
+
+-- ─── VISIBILITY ─────────────────────────────────────────────────────────────
+
+-- How far you can see, in METRES. This is the main dial of the whole preset:
+-- it drives the far clip plane AND the fog's log10 visibility curve together,
+-- so geometry is already fully swallowed by haze before it gets clipped.
+--   6-10  -> near blind, you walk into walls
+--   15-25 -> heavy dust storm, silhouettes loom out at the last moment
+--   40-80 -> thick but drivable
+-- Below 8 the third-person camera itself sits outside the clip plane and your
+-- own ped starts to disappear, so 8 is the floor.
+-- VoidLine 2026-09-01, matched to reference: 140 m.
+--
+-- The reference shot has buildings, a palm tree and a treeline all clearly
+-- readable before the haze takes over -- that is well over 100 m, not the 10 m
+-- that was set here. At 10 m the screen is nothing but fog, which is what made
+-- every colour and brightness change look identical: there was no scene left to
+-- grade, only haze. Distance is what makes it read as a dust storm rather than
+-- a blank orange screen.
+BO.VisibilityMeters = 25.0   -- VoidLine 2026-09-02: 140 -> 25 for the maximum pass
+
+-- ─── THE SANDSTORM BASE ─────────────────────────────────────────────────────
+
+-- GTA's real distance fog is baked into the WEATHER, not into timecycle vars --
+-- which is why grading fog colours alone gives an orange world you can still see
+-- clean across. So while BLOOD ORANGE is live, every client is switched onto a
+-- genuinely foggy base weather underneath, and the preset repaints that fog
+-- orange instead of trying to invent it.
+--
+-- This goes through vl_dynamicweather's own setLocalWeather() -- the sanctioned
+-- way to deviate a client without its self-heal fighting back. Every client does
+-- it at the same moment off the same synced value, so it stays consistent
+-- server-wide, and /weatherpanel still reads "Blood Orange".
+--
+-- 'FOGGY' is the dense one. 'SMOG' is thinner and browner if FOGGY is too much.
+-- '' disables this and leaves the slot's own weather -- you will lose the fog.
+-- VoidLine 2026-09-01: switched to 'SMOG' (was 'THUNDER', before that 'RAIN',
+-- before that 'FOGGY').
+--
+-- THUNDER was the single source of BOTH the rain and the lightning/thunder --
+-- it is GTA's heaviest storm tier and carries them as part of the weather, not
+-- as anything this resource adds. Removing them means leaving that tier.
+--
+-- SMOG rather than FOGGY: both are dry, but FOGGY is the dense one and the
+-- brief was to get the player visible again. SMOG is thinner and browner, which
+-- also suits the sandstorm grade better than grey fog would.
+--
+-- VoidLine 2026-09-01, second pass: SMOG's fog was still the thing killing
+-- sight distance -- now 'OVERCAST'.
+--
+-- The key point, and why this is the right dial rather than Strength: the
+-- ORANGE comes from the timecycle grade, the FOG comes from the weather. They
+-- are independent. So a dry, low-fog weather keeps the whole sandstorm colour
+-- while giving the distance back -- turning Strength down instead would have
+-- faded the orange and left the fog exactly where it was.
+--
+-- Ladder if this is still not clear enough, thickest to thinnest:
+--   FOGGY -> SMOG -> OVERCAST -> CLOUDS -> CLEAR -> EXTRASUNNY
+-- VoidLine 2026-09-02, MAXIMUM pass: 'BLIZZARD'. It is the only stock weather
+-- with dense wind-driven precipitation particles AND crushed visibility. Graded
+-- orange, its driving snow reads as blown sand and its white ground cover reads
+-- as sand drift -- which is why it beats FOGGY and SMOG for an actual sandstorm
+-- rather than a still orange fog. KillRain is ignored automatically on the snow
+-- family (see killRainWanted in client/main.lua): on BLIZZARD the precipitation
+-- IS the blowing sand, so suppressing it would defeat the whole point.
+BO.BaseWeather = 'BLIZZARD'
+
+-- ─── THE DUST FIELD (particles) ─────────────────────────────────────────────
+-- The timecycle fog_* variables recolour fog the weather already produces; they
+-- cannot invent it, and several are dropped outright on some builds. So the
+-- "you can only see a few metres" part is done with real particles.
+--
+-- The dust is anchored to the WORLD, not to the player: emitters sit on a fixed
+-- global lattice and you walk THROUGH them, instead of dragging a ring of clouds
+-- around with you. Every cell's position comes from its world coordinates alone,
+-- so every client computes an identical field and players standing together see
+-- the same clouds. (Particles are always client-rendered in FiveM -- there is no
+-- server-spawned ptfx. A deterministic world field is how you get a consistent
+-- result across the server.)
+--
+-- The field exists only while the preset is active, and the preset follows the
+-- zone weather from /weatherpanel -- so the dust covers exactly the area you set
+-- to Blood Orange, and stops at its border.
+
+-- VoidLine: disabled 2026-08-31 -- removed the mist/smoke particle field per
+-- request; the preset is now driven by real cloudy/rainy weather instead
+-- (see BO.BaseWeather) rather than a particle-based dust wall.
+-- VoidLine 2026-09-02, later: OFF again. This field was the "mist rising off
+-- the ground" -- it is a lattice of BO.DustEffect emitters ('ent_amb_steam', a
+-- steam effect) planted on the terrain at BO.DustHeight, so it reads as ground
+-- fog rather than as airborne dust. With DustSpacing at 12 m and 26 live
+-- emitters it was dense enough to sit over everything at eye level.
+--
+-- The haze itself is unaffected: distance fog comes from BO.VisibilityMeters
+-- and BLIZZARD's own weather particles, not from here. Set back to true if the
+-- near-ground layer is ever wanted -- and if so, raise DustHeight well above
+-- 2.5 or swap DustEffect for something that is not steam.
+BO.Dust = false
+
+-- Distance between emitters, in metres. This is the density dial: SMALLER means
+-- clouds closer together, so less clear air between them and shorter sight.
+--   10 - 14  -> a wall, you see a few metres
+--   16 - 22  -> heavy storm with gaps
+--   28 +     -> scattered dust, mostly atmosphere
+-- VoidLine: lowered 2026-08-30 (was 13.0/55.0/24) -- particles were costing a
+-- lot of GPU. Wider spacing + smaller field + a lower emitter cap together
+-- cut the live particle count substantially while keeping the storm-wall look
+-- at typical sight distances; raise these back up if it reads too sparse.
+BO.DustSpacing = 12.0
+
+-- How far out from the player cells are kept alive, in metres. Should stay well
+-- past your intended sight distance so the wall never has a visible near edge.
+BO.DustFieldRadius = 55.0
+
+-- Hard cap on live emitters. Particles are the expensive part of this preset --
+-- this is the FPS dial. Raise for a denser field, lower if it costs too much.
+BO.DustMaxEmitters = 26
+
+-- Size of each cloud. Should comfortably exceed DustSpacing so neighbouring
+-- clouds overlap into one continuous mass rather than reading as puffs.
+BO.DustScale = 11.00
+
+-- Opacity of each cloud, 0.0 - 1.0.
+BO.DustAlpha = 0.85
+
+-- Height above ground, in metres. Emitters are placed on the terrain, so the
+-- dust follows hills instead of floating at a fixed altitude.
+BO.DustHeight = 2.50
+
+-- Dust colour, linear 0.0-1.0. Matches BO.HazeColor by default so the near dust
+-- and the far haze read as the same storm.
+BO.DustColor = { 0.800, 0.430, 0.170 }  -- VoidLine 2026-09-02: brighter orange
+
+-- Particle asset. 'core' ships with the base game, so nothing is streamed. If
+-- this pair produces no handles the client falls through a list of alternatives
+-- and prints whichever one worked.
+-- VoidLine: switched to a steam-based mist look 2026-08-31 (was
+-- exp_grd_bzgas_smoke -- thick smoke rather than mist). Falls through the
+-- rest of dust.lua's CANDIDATES list if this one fails to load on a build.
+BO.DustDict   = 'core'
+BO.DustEffect = 'ent_amb_steam'
+
+-- Skip the dust indoors -- a dust storm inside a building looks wrong, and the
+-- interior would fill with clouds.
+BO.DustSkipInteriors = true
+
+-- ─── THE MIST ITSELF ────────────────────────────────────────────────────────
+
+-- Colour of the haze wall, linear 0.0-1.0. Distance grades INTO this colour, so
+-- this is what the far half of the screen actually looks like. Keep it close to
+-- the horizon sky colour or you get a visible seam between fog and sky.
+-- Too dark here and the distance goes black instead of misty -- that is the one
+-- mistake that makes it read as a void rather than a dust storm.
+BO.HazeColor = { 0.780, 0.400, 0.170 }  -- VoidLine 2026-09-02: pushed to saturated orange
+
+-- How brightly the haze glows (HDR multiplier). This is the dial between
+-- "dark smoke" and "lit orange smog".
+--   0.8 = dim smoke      1.3 = default, lit dust      1.9 = glowing, blinding
+-- VoidLine 2026-09-01: 1.45 -> 0.85 -> 0.45. At 10m visibility the fog IS the
+-- screen -- almost every pixel is haze -- so this is effectively the overall
+-- brightness dial, and it matters far more than the grade strength does.
+BO.HazeBrightness = 1.40   -- VoidLine 2026-09-02: 0.95 -> 1.40, glowing not dim
+
+-- ─── STOCK MODIFIER OVERRIDE ────────────────────────────────────────────────
+
+-- Use one of the GAME'S OWN timecycle modifiers instead of the hand-built
+-- BLOOD ORANGE preset in client/preset.lua.
+--
+-- Set to '' (empty) to go back to the custom preset.
+--
+-- 'MP_Arena_theme_sandstorm' is the Arena War sandstorm grade: a heavy, dusty
+-- orange haze, which is the look this resource was approximating by hand. Being
+-- a shipped modifier it is already tuned across every hour of the day, so it
+-- behaves correctly at night instead of needing the per-hour curve work the
+-- custom preset describes at the bottom of preset.lua.
+--
+-- NOTE: BO.Strength still applies, and the SCREEN LAYER settings below
+-- (ScreenTint / ScreenVignette) still draw on top. If the result is too orange,
+-- turn ScreenTint down before touching Strength -- the stock grade is already
+-- carrying the colour on its own.
+-- Replace the custom preset ENTIRELY with one of the game's own grades.
+--
+-- Leave this EMPTY. Using it costs every control in this file (visibility, sun
+-- suppression, exposure, haze colour) because those are written into a modifier
+-- this resource creates, which a stock grade replaces rather than layers onto.
+-- Use BO.StockOverlay below instead -- it gets you a stock grade's colours
+-- without giving any of that up.
+BO.StockModifier = ''
+
+-- ─── STOCK COLOUR OVERLAY ───────────────────────────────────────────────────
+
+-- A stock grade layered in the EXTRA timecycle slot, purely for its colour,
+-- while the custom preset keeps the MAIN slot and carries the fog, the
+-- visibility curve and the sun-kill.
+--
+-- This is the approach that gets both: MP_Arena_theme_sandstorm's look AND
+-- working control over sun and sight distance.
+BO.StockOverlay = 'MP_Arena_theme_sandstorm'
+
+-- Strength of that overlay only, 0.0 - 1.0. This is the dial for "how much
+-- sandstorm colour", entirely separate from BO.Strength below (which governs
+-- the custom preset in the main slot). The Arena grade is bright, so keep this
+-- low -- it is tinting, not lighting.
+BO.StockOverlayStrength = 0.30   -- VoidLine 2026-09-02: 0.08 -> 0.30, much more sandstorm
+
+-- ─── PED VISIBILITY ─────────────────────────────────────────────────────────
+
+-- The player and other peds are lit SEPARATELY from the world, via the
+-- ped_light_* / light_ped_rim_mult variables in client/preset.lua (search for
+-- "PED LIGHTING"). Raising those brightens people without touching the haze,
+-- the sky, the terrain or the grade -- so the storm stays exactly as it is and
+-- only the characters come forward.
+--
+-- Tune there, not here:
+--   ped_light_mult        overall brightness on peds   (currently 2.40)
+--   light_ped_rim_mult    edge light against the haze  (currently 1.60)
+--   light_amb_occ_mult_ped  self-shadowing; LOWER = flatter, more readable
+--
+-- If peds start looking like they glow, bring ped_light_mult down first.
+
+-- ─── SUN SUPPRESSION ────────────────────────────────────────────────────────
+
+-- Kill the sun while the preset is live.
+--
+-- This is what makes a sandstorm read as a sandstorm. GTA keeps rendering a
+-- full-strength directional light and a sun disc regardless of how much fog is
+-- in front of it, so the light punches straight through the haze and blows the
+-- whole scene out -- no amount of grade strength or screen tint can claw that
+-- back, because it is being ADDED after them.
+--
+-- The custom preset already handles this in client/preset.lua (light_dir_mult,
+-- sky_sun_hdr and friends). Stock modifiers do not, so these values are written
+-- into whichever modifier is active.
+--
+-- CAVEAT for stock mode: this edits the GAME'S OWN registered modifier, and the
+-- edit lasts for the rest of the game session -- stopping the resource does not
+-- put it back (the original values cannot be read out to restore them). It only
+-- affects this client, and only a modifier nothing else on the server uses, but
+-- a player who leaves the storm zone keeps the sunless sky until they reconnect.
+-- Set to false if that matters more than the look.
+BO.KillSun = true
+
+-- Written verbatim into the active modifier. Any name this build does not know
+-- is skipped silently, so it is safe to leave entries here that a future build
+-- renames.
+BO.KillSunVars = {
+    light_dir_mult             = 0.00,  -- the big one: directional sun light
+    sky_sun_hdr                = 0.00,  -- sun's HDR punch
+    sky_sun_disc_size          = 0.00,  -- no visible disc through the dust
+    sky_sun_mie_intensity_mult = 0.00,  -- no bright halo around it
+    sky_sun_scatter_inten      = 0.00,
+    sky_sun_influence_radius   = 0.00,
+    sky_hdr                    = 0.35,  -- overall sky brightness
+    sky_sun_col_r              = 0.560, -- what little is left stays orange
+    sky_sun_col_g              = 0.270,
+    sky_sun_col_b              = 0.070,
+}
+
+-- ─── STRENGTH ───────────────────────────────────────────────────────────────
+
+-- Overall timecycle strength, 0.0 - 1.0. 1.0 = full apocalypse.
+--
+-- VoidLine 2026-09-01: lowered from 1.0 for visibility. Worth knowing WHY this
+-- was so blinding at 1.0: BO.UseMainSlot below puts the grade in the main slot
+-- as well as the extra one, so the strength is effectively applied twice. At
+-- 1.0 with the stock sandstorm grade that is a full white-out.
+--
+-- If it is still too thick, drop this again before touching anything else; if
+-- it is now too weak, raise it toward 0.85 rather than back to 1.0.
+BO.Strength = 1.0
+
+-- Global brightness trim applied on top of the preset, in EV stops. NEGATIVE is
+-- darker. The reference look is a dim, choking world -- if the scene washes out
+-- to pale orange, push this further down.
+--   -0.5 = slightly dimmed      -2.0 = default, heavy and oppressive
+--   -3.0 = almost black silhouettes in a glowing haze
+-- VoidLine 2026-09-01: -0.55 -> -1.70. This is the brightness dial, and it was
+-- doing nothing at all while the stock grade was active. Negative is darker.
+BO.Exposure = -0.60
+
+-- Also occupy the MAIN timecycle slot when nothing else is using it.
+-- The preset always runs in the "extra" slot; taking the main slot too makes it
+-- roughly twice as strong. It politely steps aside when another script owns the
+-- main slot (e.g. vl_dynamicweather's heat haze), so nothing ever fights.
+-- VoidLine 2026-09-01: OFF. Doubling up the stock sandstorm grade was most of
+-- why the scene was blown out -- that grade is a bright, hazy one to begin with,
+-- so applying it twice pushes everything toward white.
+-- ON: the custom preset must hold the main slot, or its fog and sun-kill never
+-- reach the screen and only the overlay's colour would show.
+BO.UseMainSlot = true
+
+-- Milliseconds between self-heal re-applies. Interiors, cutscenes and other
+-- scripts clear timecycle modifiers; this puts it straight back.
+BO.HealInterval = 500
+
+-- ─── SCREEN LAYER ───────────────────────────────────────────────────────────
+
+-- Extra full-screen blood tint drawn on top of the scene. The timecycle already
+-- does the heavy lifting; this just guarantees the saturated blood cast even on
+-- low graphics settings. 0.0 disables it. Sensible range 0.05 - 0.20.
+-- VoidLine 2026-09-01: back on, and doing a different job than before.
+--
+-- IMPORTANT: while BO.StockModifier is set, this is the ONLY dial that can
+-- darken or recolour the scene. BO.Exposure, BO.HazeColor, BO.HazeBrightness
+-- and everything in preset.lua write into the hand-built modifier, which is
+-- never created in stock mode -- they are all inert. This layer is a plain
+-- DrawRect over the frame, so it works regardless.
+--
+-- The colour is therefore a DEEP burnt orange rather than the old bright one:
+-- at this alpha it both deepens the orange and takes the brightness down,
+-- which is what the previous pale tint could not do.
+--
+-- Tune it live with /botint <0.0-1.0> before committing a value here.
+-- Eased back with the fog: a flat full-screen wash reads as haze too, so at
+-- 0.22 it was adding to the very murk the weather change is removing.
+-- Carries the darkening in this mode, because BO.Exposure cannot.
+BO.ScreenTint = 0.14   -- VoidLine 2026-09-02: 0.04 -> 0.14
+BO.ScreenTintColor = { 214, 104, 30 }   -- r, g, b (0-255) -- hot sandstorm orange
+
+-- Dark corner burn, layered under the timecycle vignette. 0.0 disables.
+--
+-- VoidLine 2026-09-01: DISABLED -- this was the source of the "lines" in the
+-- weather. It is not a real vignette: it fakes one by stacking VIGNETTE_STEPS
+-- hard-edged DrawRect slivers down each side of the frame. Every sliver has a
+-- flat alpha, so each boundary is a visible step. It was cut from 8 steps to 4
+-- on 2026-08-31 for performance, which doubled the width of each band and made
+-- them obvious -- they show as pale vertical and horizontal bars across the sky.
+--
+-- Raising the step count only makes the bars thinner, never continuous, and
+-- costs 4 more DrawRect calls per step every frame. The timecycle grade carries
+-- its own vignette anyway, so this layer is redundant. Left at 0.
+BO.ScreenVignette = 0.0
+
+-- ─── SKY / WEATHER SUPPRESSION ──────────────────────────────────────────────
+
+-- Force rain and puddles off while the preset is live (a wet road instantly
+-- kills the dusty look). VoidLine 2026-09-01: back ON. It was turned off while
+-- BaseWeather was a rain tier, which is no longer true -- and this now doubles
+-- as a guard, so a zone whose own weather brings rain cannot reintroduce it
+-- underneath the preset.
+BO.KillRain = true
+
+-- Cloud layer. '' keeps whatever the weather ships with.
+-- Thin, hazy horizon bands read best: 'horizonband1', 'horizonband2',
+-- 'horizonband3', 'Wispy', 'Puffs', 'Clear 01'.
+-- VoidLine: cleared 2026-08-31 -- was forcing a thin horizon band over
+-- RAIN's own denser native cloud layer; '' lets RAIN's real clouds show.
+-- VoidLine 2026-09-01: heavy overcast. Belt and braces with BO.KillSun -- that
+-- kills the sun's LIGHT in the timecycle, this puts solid cloud where its disc
+-- would be, so there is nothing bright left in the sky to look at.
+-- Other dense options: 'Nimbus', 'Cloudy 01', 'Rain'.
+BO.CloudHat = 'Stormy 01'
+BO.CloudOpacity = 1.0           -- 0.0 - 1.0
+
+-- Wind. A sandstorm needs moving air: this is what makes trees, bushes and
+-- cloth thrash, and it is most of what separates "orange fog" from "storm".
+-- 1.0 = dead calm · 5.0 = default, everything is moving · 11.0 = violent.
+-- nil keeps the weather's own wind.
+BO.WindSpeed = 9.50
+
+-- ─── DEBUG ─────────────────────────────────────────────────────────────────
+
+-- Print which timecycle variables were applied / rejected on first activation,
+-- and log every activate/deactivate. Turn on once after install, then off.
+-- VoidLine 2026-09-01: ON, so the live tuning commands are registered --
+-- /boexp, /bovis, /bohaze, /bohazecol, /botint, /bobase. Dial the look in
+-- without restarting, then turn this back off (it also gates those commands
+-- away from players).
+BO.Debug = true
+
+-- ACE object allowed to run /bloodorange. vl_dynamicweather's own admin ACE is
+-- always accepted as well.
+BO.AcePermission = 'bloodorange.admin'

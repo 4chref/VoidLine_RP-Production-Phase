@@ -1,0 +1,119 @@
+Config = {}
+
+-- Test command
+Config.Command = 'nuclearwipe'
+Config.ResetCommand = 'nuclearreset'
+
+-- Missile model
+Config.MissileModel = 'xm_prop_x17_silo_rocket_01'
+
+-- Launch point: offshore / underwater
+-- Change these coordinates later to match the exact launch location you want.
+Config.LaunchCoords = vec3(3164.41, -4596.79, -61.99)
+
+-- Target: central Los Santos / Legion Square area
+Config.TargetCoords = vec3(179.2318, -967.2136, 36.0904)
+
+-- Event timing in seconds
+Config.RiseDuration = 14.0
+-- Cruise is ~5.5 km. At the old 35 s that was ~157 m/s, which reads as a dart
+-- rather than a ballistic missile; 110 s puts it near 50 m/s so it is genuinely
+-- watchable and the arc has time to sell itself.
+Config.FlightDuration = 110.0
+Config.DescentDuration = 16.0
+Config.ImpactRadius = 250.0
+
+-- ─── FLIGHT PATH ────────────────────────────────────────────────────────────
+
+-- Apogee above the launch/target line, in metres.
+Config.ArcHeight = 900.0
+
+-- GRAVITY TURN. How sharply the missile pitches over from vertical into the
+-- ballistic arc: downrange progress is t raised to this power.
+--
+--   1.0 = constant ground speed. The missile leaves the water vertically and
+--         then instantly snaps to a ~33 degree climb -- a visible kink, which
+--         is what it was doing.
+--   2.0 = default. Downrange speed is ZERO at the moment of launch, so the
+--         cruise begins pointing exactly where the rise left off (straight up)
+--         and tips over gradually as it gains altitude. This is how a real
+--         launch behaves: vertical off the pad, then a slow arc downrange.
+--   3.0 = holds vertical longer, then turns harder.
+Config.PitchOverPower = 2.0
+
+-- The cruise ends HERE rather than at the target -- directly above it, at this
+-- altitude -- and the descent runs from this point down. Previously the cruise
+-- ended exactly on the target and the descent then interpolated the target to
+-- itself, so the missile hung motionless over the city for the whole descent.
+Config.ApproachAltitude = 420.0
+
+-- The nose axis of Config.MissileModel, as a pitch offset in degrees, applied
+-- as: pitch = elevation + offset.
+--
+-- -90 for a model that stands NOSE-UP (+Z), which xm_prop_x17_silo_rocket_01
+-- does. Sanity check: flying straight up is elevation 90, and 90 + -90 = 0,
+-- which is the model's natural upright pose. Level flight gives -90, laying it
+-- on its side nose-forward.
+--
+-- Use 0 for a model already built nose-forward along +Y.
+Config.MissilePitchOffset = -90.0
+
+-- Missile visual tuning
+Config.MissileScale = 1.0
+
+-- ─── EXHAUST ────────────────────────────────────────────────────────────────
+
+-- Particles attached to the missile's tail. Tried in order; each entry that
+-- produces a handle is kept, so listing several gives fire AND smoke together.
+-- An effect this build does not have is skipped rather than erroring.
+--
+-- offsetZ is along the MODEL's own axis, and it is NEGATIVE.
+--
+-- This model stands upright, so its tail -- the engine bell, the bottom -- is
+-- at -Z and its nose at +Z. The rocket is ~11 m long with its origin mid-body,
+-- so the bell sits around -5 to -6.
+--
+-- (An earlier pass flipped these positive after seeing the plume at the leading
+-- end of the missile. That was the tail-first flight bug above, not the offset:
+-- the missile was flying backwards, so its tail WAS the leading end.)
+Config.TrailEffects = {
+    -- Afterburner flame first: it is the small bright core the smoke sits in
+    -- front of, so it wants to be nearest the bell.
+    { asset = 'core', name = 'veh_exhaust_afterburner',    offsetZ = -5.2,  scale = 2.5 },
+    { asset = 'core', name = 'fire_wrecked_plane_cockpit', offsetZ = -5.6,  scale = 1.8 },
+    -- Then the smoke column trailing behind it.
+    { asset = 'core', name = 'exp_grd_rpg_trail',          offsetZ = -6.2,  scale = 3.0 },
+    { asset = 'core', name = 'ent_amb_smoke_foundry',      offsetZ = -7.5,  scale = 4.0 },
+}
+
+Config.TrailFallbacks = {
+    { asset = 'core', name = 'exp_grd_bzgas_smoke', offsetZ = -6.0, scale = 3.0 },
+    { asset = 'core', name = 'ent_sht_steam',       offsetZ = -6.0, scale = 3.0 },
+}
+
+-- Aftermath
+Config.AftermathWeather = 'HALLOWEEN'
+Config.AftermathTime = 0 -- 00:00
+Config.AftermathDuration = 300 -- 5 minutes
+
+-- Player effects
+Config.PlayerDamage = 35
+Config.PlayerEffectRadius = 250.0
+Config.PlayerRagdollRadius = 100.0
+Config.ShakeDuration = 12000
+
+-- Explosion tuning. Multiple explosions/effects make it feel much larger than
+-- a single GTA explosion.
+Config.ExplosionType = 29
+Config.ExplosionDamageScale = 3.0
+Config.ExplosionAudible = true
+Config.ExplosionInvisible = false
+
+-- Set false while testing if you only want to see the missile.
+Config.EnableGlobalWeather = true
+Config.EnablePlayerEffects = true
+Config.EnableExplosion = true
+Config.EnableFireRing = true
+
+-- Debug messages
+Config.Debug = true

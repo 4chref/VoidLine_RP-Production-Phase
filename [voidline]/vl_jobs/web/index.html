@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>vl_jobs</title>
+
+<!-- Inter is af-camping's body face. Loaded from Google Fonts the same way
+     af-basebuilding loads Teko in NUI -- a pattern already proven on this
+     server. The title face ("Agency FB", "Arial Narrow") is Windows-resident,
+     exactly as af-camping declares it, so it needs no fetch at all. -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Structure mirrors af-camping's campfire screen one-for-one:
+
+       camp-root  >  scrim
+                  >  sidebar   >  camp-brand
+                                >  recipe-nav-header   (title + rule that
+                                                        overruns the rail)
+                                >  recipe-list         (the cards)
+                  >  detail    >  detail-panel > detail-hero (copy left,
+                                                              image right)
+                                              > detail-panel-spacer
+                                              > section-title
+                                              > ingredient-slots (4-up)
+                                              > cook-cta
+     Class names are kept from that screen rather than renamed to job wording,
+     so the two can be diffed against each other later. -->
+<div id="root" class="camp-root" hidden>
+    <div class="camp-scrim"></div>
+
+    <div class="camp-stage">
+
+        <aside class="camp-sidebar">
+            <header class="camp-brand">
+                <h1 class="camp-brand__title">Bunker Work</h1>
+                <p class="camp-brand__subtitle" id="brandSub">Foreman&rsquo;s board</p>
+            </header>
+
+            <div class="recipe-nav-header">
+                <h2 class="recipe-nav__title">Available shifts</h2>
+            </div>
+
+            <div class="recipe-list" id="jobList"></div>
+        </aside>
+
+        <section class="camp-detail">
+            <div class="detail-panel">
+                <div class="detail-hero">
+                    <h2 class="detail-hero__title" id="detailTitle">&mdash;</h2>
+                    <p class="detail-hero__desc" id="detailDesc"></p>
+                    <img class="detail-hero__img" id="detailImg" alt="" hidden>
+                </div>
+
+                <div class="detail-panel-spacer"></div>
+
+                <h3 class="section-title section-title--ingredients">Shift details</h3>
+                <div class="ingredient-slots" id="statGrid"></div>
+
+                <button class="cook-cta" id="ctaBtn" type="button">
+                    <span class="cook-cta__content">
+                        <span class="cook-cta__label" id="ctaLabel">Start shift</span>
+                        <span class="cook-cta__hint" id="ctaHint">Tools are provided</span>
+                    </span>
+                </button>
+
+                <button class="quit-btn" id="quitBtn" type="button" hidden>End current shift</button>
+            </div>
+        </section>
+
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>combat_drone</title>
+<style>
+  /* The page is always mounted but never focused: nothing here may ever eat a
+     click, or the player would lose mouse control the moment a drone shows up. */
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+    pointer-events: none; user-select: none;
+    font-family: "Roboto Mono", "Consolas", "Courier New", monospace;
+  }
+
+  #warn {
+    position: absolute;
+    top: 11vh; left: 50%;
+    transform: translateX(-50%) scale(0.94);
+    opacity: 0;
+    transition: opacity 180ms ease, transform 180ms ease;
+    width: min(560px, 46vw);
+  }
+  #warn.visible { opacity: 1; transform: translateX(-50%) scale(1); }
+
+  .frame {
+    position: relative;
+    padding: 14px 22px 16px;
+    background: linear-gradient(180deg, rgba(14,8,8,0.90) 0%, rgba(20,6,6,0.82) 100%);
+    border: 1px solid rgba(255, 86, 48, 0.55);
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,0.55),
+      0 10px 34px rgba(0,0,0,0.55),
+      inset 0 0 42px rgba(255, 70, 30, 0.09);
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    animation: framePulse 1.6s ease-in-out infinite;
+  }
+  @keyframes framePulse {
+    0%, 100% { border-color: rgba(255, 86, 48, 0.45); }
+    50%      { border-color: rgba(255, 138, 74, 0.95); }
+  }
+
+  /* Corner ticks: cheap way to make a flat panel read as targeting hardware. */
+  .frame::before, .frame::after {
+    content: ""; position: absolute; width: 26px; height: 26px; pointer-events: none;
+  }
+  .frame::before { top: -1px; right: -1px; border-top: 2px solid #ff7a3c; border-right: 2px solid #ff7a3c; }
+  .frame::after  { bottom: -1px; left: -1px; border-bottom: 2px solid #ff7a3c; border-left: 2px solid #ff7a3c; }
+
+  .head {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 10px; letter-spacing: 3.2px; font-weight: 700;
+    color: rgba(255, 176, 130, 0.86);
+    text-transform: uppercase;
+  }
+  .head .rule { flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,122,60,0.6), rgba(255,122,60,0)); }
+  .head .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #ff4d21; box-shadow: 0 0 9px #ff4d21;
+    animation: blink 0.9s steps(2, start) infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.15; } }
+
+  .msg {
+    margin: 12px 0 4px;
+    font-size: 19px; line-height: 1.28; font-weight: 700;
+    letter-spacing: 1.4px; text-transform: uppercase;
+    color: #ffeee6;
+    text-shadow: 0 0 14px rgba(255, 74, 30, 0.75), 0 2px 3px rgba(0,0,0,0.9);
+  }
+
+  .row { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 10px; }
+  .sub {
+    font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(255, 168, 122, 0.75); padding-bottom: 5px;
+  }
+  .timer {
+    font-size: 42px; font-weight: 700; line-height: 0.9;
+    color: #ff8a4a; font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 18px rgba(255, 92, 40, 0.85);
+  }
+  .timer .unit { font-size: 16px; margin-left: 2px; opacity: 0.65; }
+
+  .bar {
+    margin-top: 10px; height: 4px; width: 100%;
+    background: rgba(255, 255, 255, 0.09);
+    overflow: hidden;
+  }
+  #fill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #ff3b14, #ffb056);
+    box-shadow: 0 0 12px rgba(255, 90, 40, 0.9);
+    transform-origin: left center;
+  }
+
+  /* Final seconds: everything gets louder and faster. */
+  #warn.critical .frame { animation: framePulse 0.42s ease-in-out infinite; }
+  #warn.critical .msg   { color: #fff; animation: blink 0.42s steps(2, start) infinite; }
+  #warn.critical .timer { color: #ff3b14; }
+  #warn.critical #fill  { background: linear-gradient(90deg, #ff2205, #ff6a2a); }
+
+  /* Time's up. The countdown is gone and the panel goes solid red -- the drone
+     is shooting now, so this must not look like the same "you have time" state. */
+  #warn.expired .frame {
+    background: linear-gradient(180deg, rgba(70,6,4,0.94) 0%, rgba(42,4,4,0.90) 100%);
+    border-color: #ff2205;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 10px 40px rgba(120,0,0,0.6), inset 0 0 60px rgba(255,30,0,0.22);
+    animation: expiredPulse 0.3s steps(2, start) 4;
+  }
+  @keyframes expiredPulse {
+    0%, 100% { border-color: #ff2205; }
+    50%      { border-color: #fff; }
+  }
+  #warn.expired .msg   { color: #fff; font-size: 22px; text-shadow: 0 0 18px rgba(255,40,0,0.95); }
+  #warn.expired .timer,
+  #warn.expired .bar   { display: none; }
+  #warn.expired .sub   { color: #ffb3a0; padding-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div id="warn">
+  <div class="frame">
+    <div class="head">
+      <span class="dot"></span>
+      <span id="tag">AUTOMATED DEFENCE DRONE</span>
+      <span class="rule"></span>
+    </div>
+    <div class="msg" id="msg">LEAVE THE AREA OR YOU WILL BE ELIMINATED</div>
+    <div class="row">
+      <div class="sub" id="sub">TARGET LOCKED &mdash; COMPLIANCE REQUIRED</div>
+      <div class="timer"><span id="count">10</span><span class="unit">s</span></div>
+    </div>
+    <div class="bar"><div id="fill"></div></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// =============================================================================
+// 3D DRONE AUDIO
+//
+// FiveM has no native way to play a custom mp3 out of a world entity, so the
+// spatialisation is done here: Lua streams each drone's position expressed in
+// LISTENER SPACE (x = right, y = up, z = behind the camera) and every drone gets
+// its own Web Audio PannerNode. The listener therefore never has to move -- it
+// stays at the origin with the default orientation, and the drone moves around
+// it, which is exactly equivalent and far cheaper than syncing camera vectors.
+//
+// Lua sends positions on a ~15Hz cadence rather than per frame (SendNUIMessage
+// is not free). Stepping the panner straight to each sample would sound like the
+// drone teleports, so incoming positions are treated as a *target* and the real
+// panner position eases toward it every animation frame.
+// =============================================================================
+
+// Report back to Lua. Without this, a page that failed to load or an mp3 that
+// failed to decode is completely invisible from in-game -- the siren and the
+// countdown just silently never appear, with nothing in the F8 console.
+// NUI pages are served from https://cfx-nui-<resource>/, but callbacks are
+// addressed to https://<resource>/.
+const RESOURCE = (location.hostname || '').replace(/^cfx-nui-/, '') || 'vl_combat_drone';
+
+function report(name, data) {
+  try {
+    fetch('https://' + RESOURCE + '/' + name, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify(data || {}),
+    }).catch(function () {});
+  } catch (e) { /* not running inside NUI (e.g. opened in a normal browser) */ }
+}
+
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const ctx = new AudioCtx();
+
+const master = ctx.createGain();
+master.gain.value = 1.0;
+master.connect(ctx.destination);
+
+const buffers = new Map();   // src -> AudioBuffer
+const pending = new Map();   // src -> Promise<AudioBuffer>
+const sounds  = new Map();   // id  -> voice
+
+// CEF usually allows autoplay, but an AudioContext that was created before the
+// page had focus can still come up suspended. Resuming is idempotent, so it is
+// simply retried whenever anything happens.
+function wake() {
+  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+}
+
+function loadBuffer(src) {
+  if (buffers.has(src)) return Promise.resolve(buffers.get(src));
+  if (pending.has(src)) return pending.get(src);
+
+  const p = fetch(src)
+    .then((r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching ' + src);
+      return r.arrayBuffer();
+    })
+    .then((ab) => {
+      if (!ab || ab.byteLength === 0) throw new Error('empty file: ' + src);
+      return new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
+    })
+    .then((buf) => { buffers.set(src, buf); pending.delete(src); return buf; })
+    .catch((err) => {
+      pending.delete(src);
+      report('audioError', { src: src, error: String(err && err.message ? err.message : err) });
+      throw err;
+    });
+
+  pending.set(src, p);
+  return p;
+}
+
+function startVoice(cfg) {
+  wake();
+
+  // Resurrect a voice that is still fading out. This happens for real: a drone
+  // that streams out and straight back in stops and restarts within a few
+  // hundred ms. Without cancelling the pending teardown AND ramping the gain
+  // back up, the voice would survive but stay silent forever.
+  let v = sounds.get(cfg.id);
+  if (v) {
+    v.stopping = false;
+    if (v.teardown) { clearTimeout(v.teardown); v.teardown = null; }
+    v.gain.gain.cancelScheduledValues(ctx.currentTime);
+    v.gain.gain.setTargetAtTime(v.volume, ctx.currentTime, 0.08);
+    return v;
+  }
+
+  const panner = ctx.createPanner();
+  panner.panningModel   = 'HRTF';
+  panner.distanceModel  = 'inverse';
+  panner.refDistance    = cfg.refDistance || 8;
+  panner.maxDistance    = cfg.maxDistance || 90;
+  panner.rolloffFactor  = cfg.rolloff || 1.1;
+  panner.coneInnerAngle = 360;
+
+  const gain = ctx.createGain();
+  gain.gain.value = 0.0001; // faded up once the buffer is actually playing
+
+  panner.connect(gain);
+  gain.connect(master);
+
+  v = {
+    id: cfg.id,
+    panner: panner,
+    gain: gain,
+    node: null,
+    volume: cfg.volume === undefined ? 1.0 : cfg.volume,
+    loop: cfg.loop !== false,
+    pos: { x: 0, y: 0, z: 0 },
+    target: { x: 0, y: 0, z: 0 },
+    seeded: false,
+    stopping: false,
+    teardown: null,
+  };
+  sounds.set(cfg.id, v);
+
+  loadBuffer(cfg.src).then((buf) => {
+    if (!sounds.has(cfg.id) || v.stopping) return;
+    const node = ctx.createBufferSource();
+    node.buffer = buf;
+    node.loop = v.loop;
+    node.connect(panner);
+    node.start(0);
+    node.onended = () => { if (!v.loop) stopVoice(v.id, 0); };
+    v.node = node;
+    v.gain.gain.setTargetAtTime(v.volume, ctx.currentTime, 0.08);
+  }).catch(() => { sounds.delete(cfg.id); });
+
+  return v;
+}
+
+function stopVoice(id, fadeMs) {
+  const v = sounds.get(id);
+  if (!v || v.stopping) return;
+  v.stopping = true;
+
+  const ms = (fadeMs === undefined ? 220 : fadeMs);
+  v.gain.gain.cancelScheduledValues(ctx.currentTime);
+  v.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, Math.max(ms / 3000, 0.01));
+
+  v.teardown = setTimeout(() => {
+    if (!v.stopping) return; // resurrected while fading out
+    if (v.node) { try { v.node.stop(); } catch (e) {} try { v.node.disconnect(); } catch (e) {} }
+    try { v.panner.disconnect(); } catch (e) {}
+    try { v.gain.disconnect(); } catch (e) {}
+    if (sounds.get(id) === v) sounds.delete(id);
+  }, ms + 60);
+}
+
+function stopAllVoices() {
+  Array.from(sounds.keys()).forEach((id) => stopVoice(id, 60));
+}
+
+function setVoicePosition(id, x, y, z) {
+  const v = sounds.get(id);
+  if (!v) return;
+  v.target.x = x; v.target.y = y; v.target.z = z;
+  if (!v.seeded) { // first sample: snap, so the drone doesn't fly in from the origin
+    v.pos.x = x; v.pos.y = y; v.pos.z = z;
+    v.seeded = true;
+    applyPosition(v);
+  }
+}
+
+function applyPosition(v) {
+  const p = v.panner;
+  if (p.positionX) {
+    p.positionX.value = v.pos.x;
+    p.positionY.value = v.pos.y;
+    p.positionZ.value = v.pos.z;
+  } else {
+    p.setPosition(v.pos.x, v.pos.y, v.pos.z); // deprecated path, still needed on older CEF
+  }
+}
+
+// =============================================================================
+// WARNING COUNTDOWN
+// =============================================================================
+
+const el = {
+  warn:  document.getElementById('warn'),
+  msg:   document.getElementById('msg'),
+  sub:   document.getElementById('sub'),
+  tag:   document.getElementById('tag'),
+  count: document.getElementById('count'),
+  fill:  document.getElementById('fill'),
+};
+
+const warn = {
+  active: false,
+  expired: false,
+  expireTimer: null,
+  endsAt: 0,        // performance.now() ms
+  duration: 10000,
+  lastBeat: 0,
+  staleMs: 3500,    // hide if the drone stops refreshing (destroyed, lost us, resource stopped)
+};
+
+function showWarning(d) {
+  // A late heartbeat must never resurrect the countdown after it has expired --
+  // that would flash "you still have time" over a drone that is already firing.
+  if (warn.expired) return;
+
+  const now = performance.now();
+  const remaining = Math.max(0, d.remaining || 0);
+
+  warn.duration = Math.max(d.duration || remaining || 1, 1);
+  warn.endsAt = now + remaining;
+  warn.lastBeat = now;
+
+  if (d.message !== undefined) el.msg.textContent = d.message;
+  if (d.sub !== undefined) el.sub.textContent = d.sub;
+  if (d.tag !== undefined) el.tag.textContent = d.tag;
+
+  if (!warn.active) {
+    warn.active = true;
+    el.warn.classList.add('visible');
+  }
+  paintWarning(now);
+}
+
+function hideWarning() {
+  if (warn.expireTimer) { clearTimeout(warn.expireTimer); warn.expireTimer = null; }
+  warn.active = false;
+  warn.expired = false;
+  el.warn.classList.remove('visible');
+  el.warn.classList.remove('critical');
+  el.warn.classList.remove('expired');
+}
+
+// The countdown ran out. Latches into a terminal state that ignores further
+// heartbeats and stale-hides, then clears itself -- the drone is firing now, so
+// nothing about this panel should suggest there is still time left.
+function expireWarning(d) {
+  if (warn.expired) return;
+  warn.expired = true;
+  warn.active = false;              // stops the countdown repaint loop
+
+  if (d.message !== undefined) el.msg.textContent = d.message;
+  if (d.sub !== undefined) el.sub.textContent = d.sub;
+
+  el.warn.classList.remove('critical');
+  el.warn.classList.add('visible');
+  el.warn.classList.add('expired');
+
+  if (warn.expireTimer) clearTimeout(warn.expireTimer);
+  warn.expireTimer = setTimeout(hideWarning, d.displayMs || 2600);
+}
+
+function paintWarning(now) {
+  const remaining = Math.max(0, warn.endsAt - now);
+  const secs = Math.ceil(remaining / 1000);
+  const frac = Math.max(0, Math.min(1, remaining / warn.duration));
+
+  el.count.textContent = String(secs);
+  el.fill.style.transform = 'scaleX(' + frac + ')';
+  el.warn.classList.toggle('critical', remaining <= 3200);
+}
+
+// =============================================================================
+// FRAME LOOP -- position easing + countdown repaint
+// =============================================================================
+
+let lastFrame = performance.now();
+
+function frame(now) {
+  const dt = Math.min((now - lastFrame) / 1000, 0.25);
+  lastFrame = now;
+
+  // Exponential ease, framerate independent. 14/s converges in ~200ms, which is
+  // about three Lua position samples -- fast enough to track a drone doing 9m/s
+  // without reintroducing the stepping.
+  if (sounds.size > 0) {
+    const k = 1 - Math.exp(-14 * dt);
+    sounds.forEach((v) => {
+      if (!v.seeded) return;
+      v.pos.x += (v.target.x - v.pos.x) * k;
+      v.pos.y += (v.target.y - v.pos.y) * k;
+      v.pos.z += (v.target.z - v.pos.z) * k;
+      applyPosition(v);
+    });
+  }
+
+  if (warn.active) {
+    if (now - warn.lastBeat > warn.staleMs) {
+      hideWarning();
+    } else {
+      paintWarning(now);
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// =============================================================================
+// LUA BRIDGE
+// =============================================================================
+
+window.addEventListener('message', (event) => {
+  const d = event.data || {};
+  wake();
+
+  switch (d.action) {
+    case 'sound_start':    startVoice(d); break;
+    case 'sound_pos':      setVoicePosition(d.id, d.x, d.y, d.z); break;
+    case 'sound_stop':     stopVoice(d.id, d.fade); break;
+    case 'sound_stop_all': stopAllVoices(); break;
+    case 'warn_show':      showWarning(d); break;
+    case 'warn_expired':   expireWarning(d); break;
+    // An external hide must not cut the expiry banner short. The drone tears the
+    // warning down the instant it goes weapons-free, which would otherwise wipe
+    // "ELIMINATION AUTHORIZED" off the screen in the same frame it appeared.
+    // The banner's own timer still clears it.
+    case 'warn_hide':      if (!warn.expired) hideWarning(); break;
+    case 'reset':          stopAllVoices(); hideWarning(); break;
+    case 'ping':           report('ready', { audio: ctx.state, alive: true }); break;
+  }
+});
+
+// Announce ourselves. If Lua never sees this, the page did not load at all --
+// which silently kills BOTH the siren and the countdown, and is exactly the
+// failure /dronediag exists to catch.
+report('ready', { audio: ctx.state, alive: true });
+</script>
+</body>
+</html>

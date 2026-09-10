@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>vl_panel</title>
+
+<!-- One page, four systems that used to be four separate resources' own NUI
+     pages (vl_blackout, vl_alert, vl_panel itself -- air raid has no visible
+     UI, audio only). Each keeps its OWN stylesheet and script file rather than
+     being hand-merged into one blob, so nothing here had to be rewritten to
+     move in -- see fxmanifest.lua and each script's own header comment. -->
+<!-- Bebas Neue is af-expeditions' display face. Loaded from Google Fonts in
+     NUI, the same way af-basebuilding loads Teko in its own build -- a pattern
+     already proven to work on this server. The body and mono faces need no
+     fetch: af-expeditions uses the Segoe UI system stack and Consolas, both
+     resident. If the fetch fails, panel.css's fallbacks (Oswald -> Arial
+     Narrow -> sans-serif) keep the panel legible. -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" />
+
+<link rel="stylesheet" href="panel.css" />
+<link rel="stylesheet" href="blackout.css" />
+<link rel="stylesheet" href="alert.css" />
+<link rel="stylesheet" href="radio.css" />
+<link rel="stylesheet" href="youtube.css" />
+</head>
+<body>
+
+<!-- ============================================================ PANEL ==== -->
+<div id="root" class="hidden">
+    <div id="panel">
+
+        <!-- LEFT: controls -->
+        <div id="menu">
+            <div class="menu-header">
+                <span class="title">VOIDLINE ADMIN PANEL</span>
+                <button id="btn-close" class="close" title="Close (Esc)">&times;</button>
+            </div>
+
+            <!-- BLACKOUT -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">Blackout</span>
+                    <span class="pill" id="pill-blackout">OFF</span>
+                </div>
+                <div class="card-body">
+                    <input type="text" id="blackout-duration" placeholder="duration (seconds or 5m) -- optional" />
+                    <div class="row">
+                        <button class="btn on" id="btn-blackout-on">Start</button>
+                        <button class="btn off" id="btn-blackout-off">Stop</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ALERT -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">Alert</span>
+                </div>
+                <div class="card-body">
+                    <input type="text" id="alert-message" placeholder="broadcast message" />
+                    <div class="row">
+                        <button class="btn on wide" id="btn-alert-send">Broadcast</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PAGER ALERT -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">Pager Alert</span>
+                </div>
+                <div class="card-body">
+                    <input type="text" id="pager-title" placeholder="title (optional, defaults to WARNING)" />
+                    <input type="text" id="pager-message" placeholder="message" />
+                    <div class="row">
+                        <button class="btn on wide" id="btn-pager-send">Send to all pagers</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AIR RAID -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">Air Raid</span>
+                    <span class="pill" id="pill-airraid">OFF</span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <button class="btn on" id="btn-airraid-on">Start</button>
+                        <button class="btn off" id="btn-airraid-off">Stop</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- YOUTUBE BROADCAST -->
+            <section class="card">
+                <div class="card-head">
+                    <span class="card-title">YouTube Broadcast</span>
+                </div>
+                <div class="card-body">
+                    <input type="text" id="youtube-url" placeholder="YouTube link" />
+                    <div class="row">
+                        <button class="btn on wide" id="btn-youtube-play">Play for all players</button>
+                    </div>
+                    <div class="row">
+                        <button class="btn off wide" id="btn-youtube-stop">Stop</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- RIGHT: live player radar, over html/gta_map.png if you supplied one
+             (see config.lua's VLPanel.radar) -- a plain grid otherwise. -->
+        <div id="radar-wrap">
+            <div class="radar-head">
+                <span class="card-title">Live Players</span>
+                <span id="player-count">0 online</span>
+            </div>
+            <canvas id="radar"></canvas>
+        </div>
+
+    </div>
+</div>
+
+<!-- ========================================================= BLACKOUT ==== -->
+<!-- Was vl_blackout/html/index.html. Not gated by the panel's own NUI focus
+     -- every player sees this during a blackout, not just an admin with the
+     panel open. -->
+<div id="hud" class="hud" hidden>
+    <div class="label" id="label">POWER RESTORED IN</div>
+    <div class="clock" id="clock">0:00</div>
+</div>
+<audio id="cue" preload="auto"></audio>
+
+<!-- ============================================================ ALERT ==== -->
+<!-- Was vl_alert/index.html. Same as blackout: visible to every player when
+     triggered, independent of the panel's own open/closed state. -->
+<div id="vault-stage" aria-live="polite"></div>
+
+<template id="transmission-template">
+    <div class="transmission">
+        <div class="chassis">
+            <span class="bracket bracket-tl"></span>
+            <span class="bracket bracket-tr"></span>
+            <span class="bracket bracket-bl"></span>
+            <span class="bracket bracket-br"></span>
+            <span class="screw screw-tl"></span>
+            <span class="screw screw-tr"></span>
+            <span class="screw screw-bl"></span>
+            <span class="screw screw-br"></span>
+
+            <div class="screen">
+                <div class="scanlines"></div>
+                <div class="grain"></div>
+                <div class="vignette"></div>
+
+                <div class="header-row">
+                    <div class="seal" aria-hidden="true">
+                        <svg viewBox="0 0 100 100">
+                            <circle class="seal-outer" cx="50" cy="50" r="46"/>
+                            <g class="seal-ticks">
+                                <line x1="50" y1="6"  x2="50" y2="13"/>
+                                <line x1="50" y1="94" x2="50" y2="87"/>
+                                <line x1="6"  y1="50" x2="13" y2="50"/>
+                                <line x1="94" y1="50" x2="87" y2="50"/>
+                                <line x1="18.7" y1="18.7" x2="23.6" y2="23.6"/>
+                                <line x1="81.3" y1="18.7" x2="76.4" y2="23.6"/>
+                                <line x1="18.7" y1="81.3" x2="23.6" y2="76.4"/>
+                                <line x1="81.3" y1="81.3" x2="76.4" y2="76.4"/>
+                            </g>
+                            <circle class="seal-ring" cx="50" cy="50" r="30"/>
+                            <text class="seal-label" x="50" y="57">13</text>
+                        </svg>
+                    </div>
+
+                    <div class="identity">
+                        <div class="vault-name">VAULT&nbsp;13</div>
+                        <div class="vault-sub">CENTRAL COMMUNICATION NETWORK</div>
+                    </div>
+
+                    <div class="live-indicator">
+                        <span class="live-dot"></span>
+                        <span class="live-label">SECURE CONNECTION</span>
+                    </div>
+                </div>
+
+                <div class="gold-rule" aria-hidden="true"></div>
+
+                <div class="phase-block">
+                    <div class="phase-line">
+                        <span class="phase-dot"></span>
+                        <span class="phase-text">STANDBY</span>
+                    </div>
+                    <div class="receive-bar-track">
+                        <div class="receive-bar-fill"></div>
+                    </div>
+                </div>
+
+                <div class="content-block">
+                    <div class="meta-row">
+                        <span class="severity-label">PUBLIC COMMUNICATION</span>
+                        <span class="source-line">SOURCE:&nbsp;<span class="source-name">—</span></span>
+                    </div>
+
+                    <div class="message-window">
+                        <span class="message-text"></span><span class="cursor">▌</span>
+                    </div>
+
+                    <div class="tech-grid">
+                        <span><span class="tech-key">TRANSMISSION&nbsp;ID</span><span class="tech-val tx-id">—</span></span>
+                        <span><span class="tech-key">CHANNEL</span><span class="tech-val tx-channel">—</span></span>
+                        <span><span class="tech-key">STATUS</span><span class="tech-val tx-status">VERIFIED</span></span>
+                        <span><span class="tech-key">TIMESTAMP</span><span class="tech-val tx-timestamp">—</span></span>
+                    </div>
+
+                    <div class="archive-line">ARCHIVE&nbsp;RECORD&nbsp;//&nbsp;<span class="archive-id">—</span></div>
+                </div>
+
+                <div class="gold-rule thin" aria-hidden="true"></div>
+
+                <div class="footer-row">
+                    <span class="footer-status">TRANSMISSION&nbsp;RECEIVED</span>
+                    <span class="footer-network">VAULT&nbsp;COMM&nbsp;NETWORK</span>
+                </div>
+                <div class="hold-track"><div class="hold-fill"></div></div>
+            </div>
+        </div>
+
+        <div class="queue-chip"><span class="queue-count">0</span>&nbsp;MORE&nbsp;TRANSMISSIONS&nbsp;QUEUED</div>
+    </div>
+</template>
+
+<audio id="alert" src="alert.mp3" preload="auto"></audio>
+
+<!-- ============================================================ RADIO ==== -->
+<!-- Air raid emergency broadcast, a port of af-expeditions' own transmission
+     panel. Shown to every player during the air raid intro sequence; passive,
+     never takes NUI focus. See config.lua's VLAirRaid.intro.radio. -->
+<div id="radio-scene" hidden>
+    <div class="radio-backdrop"></div>
+
+    <div class="radio-host">
+        <div class="radio-notify">
+            <div class="radio-notify__scanline"></div>
+
+            <div class="radio-notify__inner">
+                <div class="radio-notify__header">
+                    <div class="radio-notify__header-left">
+                        <svg class="radio-notify__tower" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                            <path d="M5 3a12 12 0 0 0 0 12M19 3a12 12 0 0 1 0 12"/>
+                            <path d="M8.5 6a7 7 0 0 0 0 6M15.5 6a7 7 0 0 1 0 6"/>
+                            <circle cx="12" cy="9" r="1.6" fill="currentColor" stroke="none"/>
+                            <path d="M12 11v10M9 21h6"/>
+                        </svg>
+                        <p class="radio-notify__channel" id="radio-channel">EMERGENCY BROADCAST</p>
+                    </div>
+
+                    <div class="radio-notify__eq" aria-hidden="true">
+                        <span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                </div>
+
+                <div class="radio-notify__body-wrap">
+                    <div class="radio-notify__crt">
+                        <p class="radio-notify__message"><span class="radio-notify__typewriter" id="radio-text"></span><span class="radio-notify__caret" id="radio-caret">&nbsp;</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================= YOUTUBE ==== -->
+<!-- Fullscreen broadcast overlay, shown to EVERY player (not just an admin
+     with the panel open) -- see client/panel.lua's vl_panel:youtubeShow. No
+     NUI focus is taken for it: it is a passive video layer over the game,
+     not a control surface. -->
+<div id="youtube-overlay" hidden>
+    <iframe id="youtube-frame"
+            src=""
+            allow="autoplay; encrypted-media"
+            frameborder="0"></iframe>
+</div>
+
+<!-- =========================================================== SCRIPTS ==== -->
+<!-- Each keeps its own top-level scope: blackout.js is already an IIFE,
+     alert.js exposes exactly one identifier (initVault13), airraid.js is
+     wrapped in an IIFE here specifically because it and panel.js both
+     independently declare `const RESOURCE` / `const ctx` -- confirmed by
+     actually diffing their identifiers before merging, not assumed. Multiple
+     `window.addEventListener('message', ...)` calls across these files is
+     fine: each already filters on its own action/type values, so they never
+     have to be merged into one dispatcher. -->
+<script src="panel.js"></script>
+<script src="blackout.js"></script>
+<script src="alert.js"></script>
+<script src="airraid.js"></script>
+<script src="radio.js"></script>
+<script src="youtube.js"></script>
+</body>
+</html>

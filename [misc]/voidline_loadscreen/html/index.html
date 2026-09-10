@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voidline Roleplay</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <div class="wrapper">
+    <div class="left">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">You are logging in as: <span id="playerName">...</span></span>
+      </div>
+
+      <div class="eyebrow">Voidline Roleplay</div>
+      <h1>Quality is loading</h1>
+      <p class="subtitle">
+        Welcome to Voidline Roleplay. Get ready for a unique experience with our dedicated community and professional management.
+      </p>
+
+      <div class="social-label">Follow us on social media;</div>
+      <div class="social-row">
+        <div class="social-pill">
+          <span class="social-icon">◎</span> @voidlinerp
+        </div>
+        <div class="social-pill">
+          <span class="social-icon">♪</span> @voidlinerp
+        </div>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress-row">
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+          <div class="progress-percent" id="percent">0%</div>
+        </div>
+        <div class="progress-text" id="loadingText">Loading assets...</div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="char-shadow"></div>
+      <img class="char-img active" src="character.png" alt="Character">
+      <img class="char-img" src="character2.png" alt="Character">
+      <img class="char-img" src="character3.png" alt="Character">
+    </div>
+  </div>
+
+  <audio id="bgMusic" src="loading.mp3" autoplay loop></audio>
+
+  <button id="muteBtn" class="mute-btn" aria-label="Mute music" title="Mute music">
+    <span class="mute-icon">♪</span>
+  </button>
+
+  <script src="script.js"></script>
+</body>
+</html>

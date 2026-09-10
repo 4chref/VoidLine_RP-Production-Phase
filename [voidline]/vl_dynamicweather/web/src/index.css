@@ -1,0 +1,403 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── UI accent teması ─────────────────────────────────────────
+   Varsayılan değerler; oyun içinde Config.Theme'e göre theme.ts (applyTheme)
+   bunları :root üzerinde EZER. --cdw-accent-rgb Tailwind opaklık modifier'ları
+   (rgb(var(--cdw-accent-rgb)/a)) için kanal üçlüsüdür. */
+:root {
+    --cdw-accent: #dc143c;
+    --cdw-accent-rgb: 220 20 60;
+    --cdw-accent-dark: #4d000f;
+    /* Accent üzerindeki yazı/ikon rengi — theme.ts parlaklığa göre siyah/beyaz set eder */
+    --cdw-on-accent: #ffffff;
+}
+
+/* ── Soğuk (frost) ekran overlay'i — Config.ColdOverlay ─────────
+   Sıcaklık eşiğin altındayken TempOverlay tam ekran çizer: köşelerde frost parıltısı
+   + soğuk mavi vignette. Hafif nabız yalnız OPACITY'de (GPU-composited, repaint yok). */
+.cdw-cold-frost {
+    background:
+        radial-gradient(circle at 7% 5%, rgba(224, 242, 255, 0.42), transparent 26%),
+        radial-gradient(circle at 93% 5%, rgba(224, 242, 255, 0.42), transparent 26%),
+        radial-gradient(circle at 7% 95%, rgba(206, 230, 255, 0.34), transparent 26%),
+        radial-gradient(circle at 93% 95%, rgba(206, 230, 255, 0.34), transparent 26%),
+        radial-gradient(ellipse 120% 100% at 50% 50%, rgba(90, 140, 205, 0) 40%, rgba(64, 110, 180, 0.5) 100%);
+    animation: cdw-cold-pulse 5.5s ease-in-out infinite;
+    will-change: opacity;
+}
+
+@keyframes cdw-cold-pulse {
+    0%, 100% { opacity: 0.88; }
+    50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cdw-cold-frost { animation: none; }
+}
+
+body {
+    margin: 0;
+    /* NUI arka planı şeffaf olmalı — oyun görüntüsü arkada kalır */
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+    /* Tasarım SF Pro / Gilroy kullanıyor; lisanslı fontlar yoksa sistem eşdeğerlerine düşer */
+    font-family: "SF Pro Display", "SF Pro Text", Gilroy, "Segoe UI",
+        ui-sans-serif, system-ui, sans-serif;
+}
+
+img {
+    -webkit-user-drag: none;
+}
+
+/* ── Mikro-etkileşim animasyonları (abartısız) ───────────────── */
+@keyframes cdw-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes cdw-modal-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes cdw-fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes cdw-modal-out {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+}
+
+/* Modal backdrop: yumuşak karartma; kart: hafif yukarı + ölçek girişi/çıkışı */
+.cdw-backdrop {
+    animation: cdw-fade-in 0.15s ease-out;
+}
+
+.cdw-backdrop-out {
+    animation: cdw-fade-out 0.15s ease-in forwards;
+}
+
+.cdw-modal {
+    animation: cdw-modal-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transform-origin: center;
+}
+
+.cdw-modal-out {
+    animation: cdw-modal-out 0.16s ease-in forwards;
+    transform-origin: center;
+}
+
+/* Toast: fade+kayma ile gir, sonra çık (tek 1.7s animasyon) */
+@keyframes cdw-toast {
+    0% {
+        opacity: 0;
+        transform: translateY(6px) scale(0.98);
+    }
+    10% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    85% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+}
+
+.cdw-toast {
+    animation: cdw-toast 1.7s ease forwards;
+}
+
+/* Kart / liste öğesi girişi: fade + hafif yukarı kayma */
+@keyframes cdw-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cdw-card-in {
+    animation: cdw-slide-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Sekme / liste↔detay içerik geçişi: yumuşak fade (+ çok hafif kayma) */
+@keyframes cdw-view-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cdw-view-in {
+    animation: cdw-view-in 0.18s ease-out both;
+}
+
+/* Araç kümesi girişi (harita sekmesi kontrolleri) */
+.cdw-controls-in {
+    animation: cdw-fade-in 0.2s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cdw-backdrop,
+    .cdw-backdrop-out,
+    .cdw-modal,
+    .cdw-modal-out,
+    .cdw-toast,
+    .cdw-card-in,
+    .cdw-view-in,
+    .cdw-controls-in {
+        animation: none;
+    }
+}
+
+/* ── İnce özel scrollbar (CEF varsayılanı çirkin; scroll çalışır) ── */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+/* ── Zone haritası (Leaflet) ─────────────────────────────────── */
+
+/* L.map(el) .leaflet-container sınıfını div'in kendisine ekler —
+   seçici bu yüzden aynı öğeyi hedefler, alt öğeyi değil */
+.zone-map.leaflet-container {
+    /* atlas.webp okyanus rengiyle aynı — kenarlarda dikiş görünmesin */
+    background: #84bcf0;
+    contain: layout style paint;
+}
+
+.zone-map.zone-map-drawing,
+.zone-map.zone-map-drawing .leaflet-interactive {
+    cursor: crosshair !important;
+}
+
+.zone-map .leaflet-image-layer {
+    max-width: none;
+    image-rendering: -webkit-optimize-contrast;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+}
+
+.zone-label-icon {
+    background: transparent !important;
+    border: none !important;
+}
+
+.zone-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* gap em-tabanlı: font (JS ile alana göre ölçekleniyor) küçülünce boşluk da küçülür */
+    gap: 0.28em;
+    margin: 0;
+    transform: translate(-50%, -50%);
+    /* Varsayılan; ZoneMap.resizeLabels() alanın piksel boyutuna göre override eder */
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Bölgeye atanmış hava durumu — bölge adının altında küçük satır */
+.zone-label-weather {
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.8;
+}
+
+/* Tasarımdaki çizim tutamacı: 8px kare, gri dolgu + crimson kenarlık */
+.draw-vertex-icon {
+    background: transparent !important;
+    border: none !important;
+}
+
+.draw-vertex {
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: #d9d9d9;
+    border: 2px solid var(--cdw-accent);
+    box-sizing: content-box;
+    transform: translate(-2px, -2px);
+}
+
+/* Box modu köşe tutamağı — 12px kare, gri dolgu + crimson kenarlık, tutulabilir */
+.box-corner-icon {
+    background: transparent !important;
+    border: none !important;
+    cursor: nwse-resize;
+}
+
+.box-corner {
+    display: block;
+    width: 12px;
+    height: 12px;
+    margin: 1px;
+    background: #d9d9d9;
+    border: 2px solid var(--cdw-accent);
+    box-sizing: content-box;
+    border-radius: 2px;
+}
+
+/* Box modu orta taşıma tutamağı — düşük opaklık daire + el ikonu */
+.box-move-icon {
+    background: transparent !important;
+    border: none !important;
+    cursor: grab;
+}
+
+.box-move-icon:active {
+    cursor: grabbing;
+}
+
+.box-move {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    background: rgb(var(--cdw-accent-rgb) / 0.14);
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+/* Shape modu köşe tutamağı — sürüklenip taşınabilir (kavis değil, konum) */
+.vertex-handle-icon {
+    background: transparent !important;
+    border: none !important;
+    cursor: grab;
+}
+
+.vertex-handle-icon:active {
+    cursor: grabbing;
+}
+
+.vertex-handle {
+    display: block;
+    width: 12px;
+    height: 12px;
+    margin: 1px;
+    background: #d9d9d9;
+    border: 2px solid var(--cdw-accent);
+    box-sizing: content-box;
+}
+
+/* Shape modu kenar kontrol tutamağı — elmas (45° kare) */
+.draw-control-icon {
+    background: transparent !important;
+    border: none !important;
+    cursor: grab;
+}
+
+.draw-control {
+    display: block;
+    width: 10px;
+    height: 10px;
+    margin: 2px;
+    background: #d9d9d9;
+    border: 2px solid var(--cdw-accent);
+    box-sizing: content-box;
+    transform: rotate(45deg);
+}
+
+/* Forecast bölge hava ikonu (beyaz) */
+.zone-weather-img {
+    display: block;
+    /* em-tabanlı: etiket fontu alana göre ölçeklenince ikon da birlikte küçülür */
+    width: 1.9em;
+    height: 1.9em;
+    margin: 0 auto;
+    filter: brightness(0) invert(1) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+
+/* Rüzgar kurdelesi — kalın gradient bant + ortada akan kesikli beyaz çizgi (çift şerit yol) */
+.wind-ribbon-band {
+    stroke-linecap: butt;
+    stroke-linejoin: round;
+}
+
+.wind-ribbon-line {
+    stroke-linecap: butt;
+    stroke-linejoin: round;
+    animation: ribbon-flow 2.5s linear infinite;
+}
+
+/* Perf: Config.WindRibbonFlow=false → sürekli repaint eden akış animasyonunu kapat
+   (şeritler statik kalır). prefers-reduced-motion da kapatır. */
+.cdw-no-ribbon-flow .wind-ribbon-line {
+    animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+    .wind-ribbon-line {
+        animation: none;
+    }
+}
+
+@keyframes ribbon-flow {
+    to {
+        stroke-dashoffset: -30;
+    }
+}
+
+#root {
+    width: 100vw;
+    height: 100vh;
+}

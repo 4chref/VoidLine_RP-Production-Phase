@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CRT-8000 GPS</title>
+<style>
+  :root {
+    --green: #00e60b;
+    --green-bright: #1aff1a;
+    --bg: #050805;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    font-family: 'Courier New', 'JetBrains Mono', monospace;
+    color: var(--green);
+    overflow: hidden;
+    user-select: none;
+  }
+  #root { display: none; width: 100%; height: 100%; }
+  #root.visible { display: block; }
+
+  #device {
+    position: absolute;
+    top: 300px;
+    left: 1450px;
+    width: 280px;
+    height: 430px;
+    background: linear-gradient(180deg, #14170f 0%, #0a0d08 100%);
+    border: 3px solid #22271a;
+    border-radius: 22px;
+    box-shadow: 0 0 0 2px #000, 0 10px 30px rgba(0,0,0,.6), inset 0 0 40px rgba(0,0,0,.6);
+    padding: 16px 14px 12px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #device-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 2px 8px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #3a4a3a;
+    cursor: grab;
+  }
+  #device-top:active { cursor: grabbing; }
+  #device-top.dragging { cursor: grabbing; }
+
+  #drag-handle {
+    letter-spacing: 3px;
+    color: #3a4a3a;
+  }
+  #drag-handle::before { content: "⠿ MOVE"; }
+
+  #gps-close {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin-left: 4px;
+    padding: 0;
+    background: rgba(176, 59, 46, .18);
+    border: 1px solid #4a2a2a;
+    border-radius: 3px;
+    color: #d5615a;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  #gps-close:hover { background: rgba(176, 59, 46, .35); }
+  #gps-close:active { background: #000; }
+
+  #signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 10px;
+  }
+  #signal-bars span {
+    display: block;
+    width: 3px;
+    background: #2a3a20;
+  }
+  #signal-bars span:nth-child(1) { height: 3px; }
+  #signal-bars span:nth-child(2) { height: 5px; }
+  #signal-bars span:nth-child(3) { height: 7px; }
+  #signal-bars span:nth-child(4) { height: 10px; }
+  #signal-bars.on span { background: var(--green-bright); box-shadow: 0 0 4px rgba(26,255,26,.6); }
+  #battery { color: #3a4a3a; }
+  #battery.on { color: var(--green-bright); text-shadow: 0 0 4px rgba(26,255,26,.6); }
+
+  #screen {
+    position: relative;
+    flex: 1;
+    background: #020602;
+    border-radius: 4px;
+    border: 2px solid #0e1a0e;
+    overflow: hidden;
+    box-shadow: inset 0 0 25px rgba(0,230,11,.15);
+    cursor: grab;
+  }
+  #screen.panning { cursor: grabbing; }
+
+  #map-wrap {
+    position: absolute;
+    top: 0; left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+    z-index: 1;
+  }
+
+  .tile-img {
+    position: absolute;
+    display: none;
+    top: 0; left: 0;
+  }
+
+  #screen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 1px,
+      rgba(0,0,0,.35) 2px,
+      rgba(0,0,0,.35) 3px
+    );
+    mix-blend-mode: multiply;
+  }
+  #screen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 60px rgba(0,0,0,.7);
+    border-radius: 4px;
+  }
+
+  #hud-top {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #000;
+    text-shadow: 0 0 6px rgba(0,230,11,.6);
+    z-index: 2;
+  }
+
+  #hud-bottom {
+    position: absolute;
+    bottom: 8px; left: 8px; right: 8px;
+    z-index: 2;
+    font-size: 11px;
+    font-weight: bold;
+    color: #000;
+    text-shadow: 0 0 6px rgba(0,230,11,.6);
+  }
+  #hud-bottom .street { font-size: 14px; color: #000; }
+  #hud-bottom .zone { opacity: .75; }
+  #hud-bottom .coords { opacity: .6; margin-top: 2px; }
+  #hud-bottom .dest-dist { color: #ff2d2d; text-shadow: 0 0 6px rgba(255,45,45,.7); margin-top: 2px; }
+  #hud-bottom .dest-dist.hidden { display: none; }
+
+  #zoom-controls {
+    position: absolute;
+    top: 28px;
+    right: 8px;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #zoom-controls button {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: rgba(10, 15, 8, .65);
+    border: 1px solid #2a3520;
+    border-radius: 3px;
+    color: var(--green-bright);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: bold;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-shadow: 0 0 4px rgba(26,255,26,.6);
+  }
+  #zoom-controls button:hover { background: rgba(10, 15, 8, .85); }
+  #zoom-controls button:active { background: #000; }
+  #zoom-reset {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+
+  /* VoidLine: used to be pinned at left:50%/top:50% (screen-fixed) because
+     the camera always hard-followed the player, so the player WAS always
+     screen-center by definition. Now that dragging can pan the view away
+     from the player, this has to be a real map-space marker (left/top set
+     in JS, same technique as .blip-dest) instead of a fixed screen point. */
+  .blip-you {
+    position: absolute;
+    width: 12px; height: 12px;
+    transform: translate(-50%, -50%);
+    background: #ff2d2d;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 8px 3px rgba(255,45,45,.9);
+    z-index: 3;
+  }
+  .blip-you::after {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 26px; height: 26px;
+    transform: translate(-50%,-50%);
+    border: 1px solid rgba(255,45,45,.6);
+    border-radius: 50%;
+    animation: pulse 2s infinite ease-out;
+  }
+  @keyframes pulse {
+    0% { transform: translate(-50%,-50%) scale(.4); opacity: .8; }
+    100% { transform: translate(-50%,-50%) scale(2.4); opacity: 0; }
+  }
+
+  #dest-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 2px 8px;
+  }
+  #dest-bar input {
+    width: 0;
+    flex: 1;
+    min-width: 0;
+    background: #020602;
+    border: 1px solid #1e2a18;
+    border-radius: 3px;
+    color: var(--green-bright);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 3px 4px;
+    text-align: center;
+  }
+  #dest-bar input::placeholder { color: #3a4a3a; }
+  #dest-bar input:focus {
+    outline: none;
+    border-color: var(--green);
+    box-shadow: 0 0 4px rgba(0,230,11,.4);
+  }
+  #dest-bar button {
+    flex: 0 0 auto;
+    background: rgba(10, 15, 8, .65);
+    border: 1px solid #2a3520;
+    border-radius: 3px;
+    color: var(--green-bright);
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: .3px;
+    padding: 4px 5px;
+    cursor: pointer;
+    text-shadow: 0 0 4px rgba(26,255,26,.6);
+    white-space: nowrap;
+  }
+  #dest-bar button:hover { background: rgba(10, 15, 8, .85); }
+  #dest-bar button:active { background: #000; }
+  #dest-bar #dest-clear { color: #b03b2e; padding: 4px 7px; font-size: 11px; }
+
+  .blip-dest {
+    position: absolute;
+    width: 10px; height: 10px;
+    transform: translate(-50%, -50%) rotate(45deg);
+    background: #ffcc00;
+    border: 2px solid #000;
+    box-shadow: 0 0 6px 2px rgba(255,204,0,.8);
+    z-index: 3;
+  }
+
+  .path-line {
+    position: absolute;
+    height: 4px;
+    left: 0; top: 0;
+    transform-origin: 0 50%;
+    background: repeating-linear-gradient(to right, #ff2d2d 0, #ff2d2d 8px, transparent 8px, transparent 14px);
+    box-shadow: 0 0 5px rgba(255,45,45,.7);
+    pointer-events: none;
+    z-index: 2;
+    display: none;
+  }
+
+  #device-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    padding: 0 2px;
+  }
+  #device-label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: #3a4a3a;
+    text-transform: uppercase;
+  }
+  #keys {
+    display: flex;
+    gap: 6px;
+  }
+  #keys .key {
+    width: 22px; height: 8px;
+    background: #1c2216;
+    border: 1px solid #2a3520;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div id="device">
+      <div id="device-top">
+        <span id="drag-handle"></span>
+        <div id="signal-bars" class="on"><span></span><span></span><span></span><span></span></div>
+        <div id="battery" class="on">GPS-LOCK</div>
+        <button type="button" id="gps-close" aria-label="Close GPS">&times;</button>
+      </div>
+      <div id="dest-bar">
+        <input type="text" id="dest-coords" placeholder="X, Y, Z" autocomplete="off">
+        <button type="button" id="dest-set">SET</button>
+        <button type="button" id="dest-copy" title="Copy my current location">COPY</button>
+        <button type="button" id="dest-clear">&times;</button>
+      </div>
+      <div id="screen">
+        <div id="map-wrap"></div>
+        <div id="hud-top">
+          <span id="hdg">HDG 000</span>
+          <span id="clock">--:--</span>
+        </div>
+        <div id="zoom-controls">
+          <button type="button" id="zoom-reset" aria-label="Recenter and reset zoom">&#8982;</button>
+        </div>
+        <div id="hud-bottom">
+          <div class="street" id="street">UNKNOWN ROAD</div>
+          <div class="zone" id="zone">UNKNOWN ZONE</div>
+          <div class="coords" id="coords">X 0.0  Y 0.0  Z 0.0</div>
+          <div class="dest-dist hidden" id="dest-dist"></div>
+        </div>
+      </div>
+      <div id="device-bottom">
+        <div id="device-label">CRT-8000 GPS</div>
+        <div id="keys"><span class="key"></span><span class="key"></span><span class="key"></span></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const root = document.getElementById('root');
+const device = document.getElementById('device');
+const dragBar = document.getElementById('device-top');
+const screenEl = document.getElementById('screen');
+const mapWrap = document.getElementById('map-wrap');
+const label = document.getElementById('device-label');
+
+const RESOURCE_NAME = (typeof GetParentResourceName === 'function') ? GetParentResourceName() : 'af-gps';
+
+// --- close button ---
+// Lives inside the drag bar visually, but must not also start a drag when
+// clicked -- stop the mousedown from reaching dragBar's own listener below.
+const closeBtn = document.getElementById('gps-close');
+closeBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+closeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  fetch(`https://${RESOURCE_NAME}/gps:close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+    body: '{}',
+  }).catch(() => {});
+});
+
+// --- tiled map: real game map tiles, only the ones near the player are
+// ever loaded, so nothing asks the NUI browser to decode one huge image ---
+let TILE_FOLDER = 'images/tiles/';
+let TILE_SIZE = 256;
+let GRID = 16;
+let mapZoom = 4.0;
+
+function tileSrc(col, row) {
+  return `${TILE_FOLDER}tile_${col}_${row}.jpg`;
+}
+
+let tileImgs = [];
+let lastCenterCol = null;
+let lastCenterRow = null;
+
+// Radius of tiles kept loaded around the player, in tiles each direction.
+// 4 (a 9x9 block) instead of a plain 3x3, sized for ZOOM_MIN below so
+// zooming out all the way still has tiles at the screen edges instead of
+// running into blank space.
+const TILE_RADIUS = 4;
+
+function ensureTiles() {
+  if (tileImgs.length) return;
+  const count = (TILE_RADIUS * 2 + 1) ** 2;
+  for (let i = 0; i < count; i++) {
+    const img = document.createElement('img');
+    img.className = 'tile-img';
+    img.style.width = TILE_SIZE + 'px';
+    img.style.height = TILE_SIZE + 'px';
+    mapWrap.appendChild(img);
+    tileImgs.push(img);
+  }
+}
+
+function updateTiles(px, py) {
+  ensureTiles();
+  const centerCol = Math.max(0, Math.min(GRID - 1, Math.floor(px / TILE_SIZE)));
+  const centerRow = Math.max(0, Math.min(GRID - 1, Math.floor(py / TILE_SIZE)));
+  if (centerCol === lastCenterCol && centerRow === lastCenterRow) return;
+  lastCenterCol = centerCol;
+  lastCenterRow = centerRow;
+
+  let idx = 0;
+  for (let dr = -TILE_RADIUS; dr <= TILE_RADIUS; dr++) {
+    for (let dc = -TILE_RADIUS; dc <= TILE_RADIUS; dc++) {
+      const col = centerCol + dc;
+      const row = centerRow + dr;
+      const img = tileImgs[idx++];
+      if (col < 0 || col >= GRID || row < 0 || row >= GRID) {
+        img.style.display = 'none';
+        continue;
+      }
+      img.style.display = 'block';
+      img.style.left = (col * TILE_SIZE) + 'px';
+      img.style.top = (row * TILE_SIZE) + 'px';
+      const src = tileSrc(col, row);
+      if (img.dataset.src !== src) {
+        img.dataset.src = src;
+        img.src = src;
+      }
+    }
+  }
+}
+
+// --- drag to reposition anywhere on screen ---
+let dragging = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
+function clampToWindow(left, top) {
+  const maxLeft = window.innerWidth - device.offsetWidth;
+  const maxTop = window.innerHeight - device.offsetHeight;
+  return {
+    left: Math.min(Math.max(left, 0), Math.max(maxLeft, 0)),
+    top: Math.min(Math.max(top, 0), Math.max(maxTop, 0)),
+  };
+}
+
+function setDevicePosition(left, top) {
+  const clamped = clampToWindow(left, top);
+  device.style.left = clamped.left + 'px';
+  device.style.top = clamped.top + 'px';
+}
+
+dragBar.addEventListener('mousedown', (e) => {
+  dragging = true;
+  dragBar.classList.add('dragging');
+  const rect = device.getBoundingClientRect();
+  dragOffsetX = e.clientX - rect.left;
+  dragOffsetY = e.clientY - rect.top;
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  setDevicePosition(e.clientX - dragOffsetX, e.clientY - dragOffsetY);
+  positionMap(lastMapPos.x, lastMapPos.y);
+});
+
+window.addEventListener('mouseup', () => {
+  if (!dragging) return;
+  dragging = false;
+  dragBar.classList.remove('dragging');
+
+  try {
+    localStorage.setItem('af-gps:pos', JSON.stringify({ left: device.style.left, top: device.style.top }));
+  } catch (e) {}
+});
+
+function restorePosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('af-gps:pos'));
+    if (saved && saved.left && saved.top) {
+      device.style.left = saved.left;
+      device.style.top = saved.top;
+      return;
+    }
+  } catch (e) {}
+  // default: top-right corner
+  setDevicePosition(window.innerWidth - device.offsetWidth - 30, 30);
+}
+
+// VoidLine 2026-08-31: the camera used to be hard-locked to the player's
+// live position -- `lastMapPos` WAS the camera center, so there was no way
+// to look anywhere else without physically moving in-game. Split into two
+// things now: `lastMapPos` still tracks the player's real position (needed
+// for the player blip and the destination distance/line math), while
+// `viewCenter` is what the camera actually renders at. They're the same
+// point until the player drags the map, at which point `manualPan` latches
+// true and viewCenter stops following -- the zoom-reset button (or the new
+// RECENTER control) snaps it back.
+let lastMapPos = { x: 0, y: 0 };
+let viewCenter = { x: 0, y: 0 };
+let manualPan = false;
+
+let playerBlip = null;
+function ensurePlayerBlip() {
+  if (playerBlip) return;
+  playerBlip = document.createElement('div');
+  playerBlip.className = 'blip-you';
+  mapWrap.appendChild(playerBlip);
+}
+
+function positionMap(px, py) {
+  lastMapPos = { x: px, y: py };
+  if (!manualPan) viewCenter = { x: px, y: py };
+  render();
+}
+
+function render() {
+  ensurePlayerBlip();
+  updateTiles(viewCenter.x, viewCenter.y);
+  const rect = screenEl.getBoundingClientRect();
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  mapWrap.style.transform =
+    `translate(${cx - viewCenter.x * mapZoom}px, ${cy - viewCenter.y * mapZoom}px) scale(${mapZoom})`;
+  playerBlip.style.left = lastMapPos.x + 'px';
+  playerBlip.style.top = lastMapPos.y + 'px';
+  updateDestinationVisuals();
+}
+window.addEventListener('resize', render);
+
+// --- drag the MAP itself to pan around, independent of dragging the whole
+// device widget (that's dragBar, a completely separate element/state above).
+// Guarded against starting a pan when the mousedown actually landed on a
+// button or the coordinate input, since those sit visually inside #screen
+// and would otherwise both fire (their own click AND start a drag).
+let panning = false;
+let panLastX = 0;
+let panLastY = 0;
+
+screenEl.addEventListener('mousedown', (e) => {
+  if (e.target.closest('#zoom-controls, #dest-bar, button, input')) return;
+  panning = true;
+  manualPan = true;
+  screenEl.classList.add('panning');
+  panLastX = e.clientX;
+  panLastY = e.clientY;
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!panning) return;
+  const dxScreen = e.clientX - panLastX;
+  const dyScreen = e.clientY - panLastY;
+  panLastX = e.clientX;
+  panLastY = e.clientY;
+  // Screen-pixel drag delta converted to map-space at the current zoom, and
+  // inverted -- dragging the map right means the view center moves left.
+  viewCenter = {
+    x: viewCenter.x - dxScreen / mapZoom,
+    y: viewCenter.y - dyScreen / mapZoom,
+  };
+  render();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!panning) return;
+  panning = false;
+  screenEl.classList.remove('panning');
+});
+
+// --- mouse wheel to zoom in/out, centered on the current view ---
+screenEl.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  setZoom(e.deltaY < 0 ? mapZoom * ZOOM_FACTOR : mapZoom / ZOOM_FACTOR);
+}, { passive: false });
+
+// --- zoom buttons ---
+// Default matches Config.MapZoom (shared/config.lua) -- it's 1.4, NOT 4.0.
+// The old min (2.0, then 1.5) sat above or right on top of that real default,
+// which is why "zoom out" barely moved anything, or even zoomed IN on the
+// first click. Min is now well below the real default for actual room to
+// zoom out, matched by the 9x9 tile buffer above (TILE_RADIUS) so the screen
+// stays covered instead of showing blank edges at low zoom.
+const DEFAULT_ZOOM = 1.4;
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 8.0;
+// Multiplicative rather than a fixed +/- amount: over a range this wide
+// (0.4 to 8.0, 20x), a fixed step is either too coarse near the bottom or
+// takes forever near the top. Each click scales by the same proportion
+// instead, so it feels consistent at any zoom level.
+const ZOOM_FACTOR = 1.25;
+
+function setZoom(z) {
+  mapZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+  positionMap(lastMapPos.x, lastMapPos.y);
+}
+
+document.getElementById('zoom-reset').addEventListener('click', (e) => {
+  e.stopPropagation();
+  // VoidLine 2026-08-31: now doubles as RECENTER, since dragging the map can
+  // pan the view away from the player -- this is the only way back besides
+  // moving in-game far enough for the tile buffer to catch up.
+  manualPan = false;
+  mapZoom = DEFAULT_ZOOM;
+  viewCenter = { x: lastMapPos.x, y: lastMapPos.y };
+  render();
+});
+
+// --- destination: manual "X, Y, Z" entry, a marker on the map, and a
+// dashed line to it from the player's live position. Road-following via the
+// game's vehicle road-node data (GetNthClosestVehicleNodeFavourDirection)
+// was tried and dropped -- FiveM doesn't expose the actual road graph, only
+// nearby-node queries, and the resulting greedy walk kept producing
+// wrong-direction jumps that looked worse than a plain straight line. This
+// is a straight heading line on purpose now, not a routing bug. ---
+let mapProjection = null; // {centerX, centerY, scaleX, scaleY}, from Lua
+let mosaicScale = 1;      // 2 ^ Config.Tiles.zoom, from Lua
+let destination = null;   // {x, y, z, mapX, mapY}
+
+function worldToMapPixel(x, y) {
+  if (!mapProjection) return [0, 0];
+  const px = mosaicScale * (mapProjection.scaleX * x + mapProjection.centerX);
+  const py = mosaicScale * (-mapProjection.scaleY * y + mapProjection.centerY);
+  return [px, py];
+}
+
+let destBlip = null;
+let pathLine = null;
+
+function ensureDestElements() {
+  if (destBlip) return;
+  destBlip = document.createElement('div');
+  destBlip.className = 'blip-dest';
+  destBlip.style.display = 'none';
+  mapWrap.appendChild(destBlip);
+
+  pathLine = document.createElement('div');
+  pathLine.className = 'path-line';
+  mapWrap.appendChild(pathLine);
+}
+
+const destDistEl = document.getElementById('dest-dist');
+
+function updateDestinationVisuals() {
+  ensureDestElements();
+
+  if (!destination) {
+    destBlip.style.display = 'none';
+    pathLine.style.display = 'none';
+    destDistEl.classList.add('hidden');
+    return;
+  }
+
+  destBlip.style.display = 'block';
+  destBlip.style.left = destination.mapX + 'px';
+  destBlip.style.top = destination.mapY + 'px';
+
+  const dx = destination.mapX - lastMapPos.x;
+  const dy = destination.mapY - lastMapPos.y;
+  const pixelDist = Math.hypot(dx, dy);
+  const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+
+  pathLine.style.display = 'block';
+  pathLine.style.left = lastMapPos.x + 'px';
+  pathLine.style.top = (lastMapPos.y - 2) + 'px'; // centers the 4px-tall line
+  pathLine.style.width = pixelDist + 'px';
+  pathLine.style.transform = `rotate(${angleDeg}deg)`;
+
+  const worldDist = mapProjection ? pixelDist / (mosaicScale * mapProjection.scaleX) : 0;
+  destDistEl.textContent = 'DEST ' + Math.round(Math.abs(worldDist)) + 'm';
+  destDistEl.classList.remove('hidden');
+}
+
+function setDestination(x, y, z) {
+  const [mapX, mapY] = worldToMapPixel(x, y);
+  destination = { x, y, z, mapX, mapY };
+  updateDestinationVisuals();
+}
+
+function clearDestination() {
+  destination = null;
+  updateDestinationVisuals();
+}
+
+function parseCoordInputs() {
+  const raw = document.getElementById('dest-coords').value;
+  const parts = raw.split(',').map((s) => parseFloat(s.trim()));
+  const [x, y, z] = parts;
+
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y, z: Number.isFinite(z) ? z : 0 };
+}
+
+document.getElementById('dest-set').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const coords = parseCoordInputs();
+  if (!coords) return;
+  setDestination(coords.x, coords.y, coords.z);
+});
+
+document.getElementById('dest-clear').addEventListener('click', (e) => {
+  e.stopPropagation();
+  clearDestination();
+  document.getElementById('dest-coords').value = '';
+});
+
+document.getElementById('dest-coords').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key !== 'Enter') return;
+  const coords = parseCoordInputs();
+  if (coords) setDestination(coords.x, coords.y, coords.z);
+});
+
+// --- copy my current location, as "X, Y, Z", to the clipboard ---
+let lastPlayerCoords = { x: 0, y: 0, z: 0 };
+const destCopyBtn = document.getElementById('dest-copy');
+
+destCopyBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const text = lastPlayerCoords.x.toFixed(1) + ', ' + lastPlayerCoords.y.toFixed(1) + ', ' + lastPlayerCoords.z.toFixed(1);
+
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e2) { /* clipboard unavailable, nothing more to try */ }
+    document.body.removeChild(ta);
+  }
+
+  const original = destCopyBtn.textContent;
+  destCopyBtn.textContent = 'COPIED';
+  setTimeout(() => { destCopyBtn.textContent = original; }, 900);
+});
+
+function fmtHeading(h) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const idx = Math.round(((h % 360) / 45)) % 8;
+  return dirs[idx] + ' ' + String(Math.round(h)).padStart(3, '0');
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').innerText =
+    String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+}
+setInterval(updateClock, 1000 * 15);
+updateClock();
+
+window.addEventListener('message', (event) => {
+  const { action, data } = event.data;
+
+  if (action === 'gps:open') {
+    root.classList.add('visible');
+    if (data && data.device) label.innerText = data.device;
+    if (data && data.tileFolder) TILE_FOLDER = data.tileFolder;
+    if (data && data.tileSize) TILE_SIZE = data.tileSize;
+    if (data && data.tileGrid) GRID = data.tileGrid;
+    if (data && data.mapZoom) mapZoom = data.mapZoom;
+    if (data && data.mapProjection) mapProjection = data.mapProjection;
+    if (data && data.tileZoomExp) mosaicScale = 2 ** data.tileZoomExp;
+    restorePosition();
+    requestAnimationFrame(() => positionMap(lastMapPos.x, lastMapPos.y));
+  }
+
+  if (action === 'gps:close') {
+    root.classList.remove('visible');
+  }
+
+  if (action === 'gps:update' && data) {
+    positionMap(data.mapX, data.mapY);
+    lastPlayerCoords = { x: data.x, y: data.y, z: data.z };
+
+    document.getElementById('hdg').innerText = 'HDG ' + fmtHeading(data.heading);
+    document.getElementById('street').innerText =
+      (data.street || 'UNKNOWN ROAD') + (data.cross ? ' / ' + data.cross : '');
+    document.getElementById('zone').innerText = data.zone || 'UNKNOWN ZONE';
+    document.getElementById('coords').innerText =
+      'X ' + data.x.toFixed(1) + '  Y ' + data.y.toFixed(1) + '  Z ' + data.z.toFixed(1);
+  }
+});
+</script>
+</body>
+</html>

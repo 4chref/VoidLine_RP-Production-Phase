@@ -1,0 +1,286 @@
+<template>
+    <div class="clothes-parent" :style="{
+        filter: (contextMenuStore.opened || inputStore.isOpened || nearbyStore.isOpened) ? 'blur(2px)' : ''
+    }">
+        <!-- VoidLine: the Myself/Target selector is removed. Target drove AVP's
+             frisk inventory, which ox has no equivalent for, and a lone
+             "Myself" tab is just noise. -->
+
+        <div class="character-image"></div>
+
+        <!-- CENTER -->
+        <ClothesItem slot-guid="HAT_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('HAT_SLOT')" empty_image="hat.png"
+            name="Hat" :height="4.5" :width="4.5" :style="{
+                    left: '41%',
+                    top: '0%'
+                }" />
+
+        <ClothesItem slot-guid="BODY_ARMOUR_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('BODY_ARMOUR_SLOT')"
+            empty_image="body_armour.png" name="Body Armour" :height="4.5" :width="4.5" :style="{
+                    left: '41%',
+                    top: '20%'
+                }" />
+
+        <ClothesItem slot-guid="BACKPACK_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('BACKPACK_SLOT')"
+            empty_image="backpack.png" name="Backpack" :height="4.5" :width="4.5" :style="{
+                    left: '41%',
+                    top: '40%'
+                }" />
+
+        <!-- RIGHT -->
+        <ClothesItem slot-guid="SUNGLASSES_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('SUNGLASSES_SLOT')"
+            empty_image="sunglasses.png" name="Glasses" :height="4.5" :width="4.5" :style="{
+                    left: '75%',
+                    top: '0%'
+                }" />
+
+        <ClothesItem slot-guid="EARRINGS_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('EARRINGS_SLOT')"
+            empty_image="earrings.png" name="Earrings" :height="4.5" :width="4.5" :style="{
+                    left: '75%',
+                    top: '20%'
+                }" />
+
+        <ClothesItem slot-guid="ACCESSORIES_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('ACCESSORIES_SLOT')"
+            empty_image="accessories.png" name="Accessories" :height="4.5" :width="4.5" :style="{
+                    left: '75%',
+                    top: '40%'
+                }" />
+
+        <ClothesItem slot-guid="WATCH_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('WATCH_SLOT')"
+            empty_image="watch.png" name="Watch" :height="4.5" :width="4.5" :style="{
+                    left: '75%',
+                    top: '60%'
+                }" />
+
+        <ClothesItem slot-guid="BRACELET_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('BRACELET_SLOT')"
+            empty_image="bracelet.png" name="Bracelet" :height="4.5" :width="4.5" :style="{
+                    left: '75%',
+                    top: '80%'
+                }" />
+
+        <!-- LEFT -->
+        <ClothesItem slot-guid="MASK_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('MASK_SLOT')" empty_image="mask.png"
+            name="Mask" :height="4.5" :width="4.5" :style="{
+                    left: '5%',
+                    top: '0%'
+                }" />
+
+        <ClothesItem slot-guid="HOODIE_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('HOODIE_SLOT')"
+            empty_image="hoodie.png" name="Hoodie" :height="4.5" :width="4.5" :style="{
+                    left: '5%',
+                    top: '20%'
+                }" />
+
+        <ClothesItem slot-guid="SHIRT_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('SHIRT_SLOT')"
+            empty_image="shirt.png" name="Undershirt" :height="4.5" :width="4.5" :style="{
+                    left: '5%',
+                    top: '40%'
+                }" />
+
+        <ClothesItem slot-guid="PANTS_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('PANTS_SLOT')"
+            empty_image="pants.png" name="Pants" :height="4.5" :width="4.5" :style="{
+                    left: '5%',
+                    top: '60%'
+                }" />
+
+        <ClothesItem slot-guid="SHOES_SLOT" :inv_unique_id="iUniqueId" :item="atSlotGUID('SHOES_SLOT')"
+            empty_image="shoes.png" name="Shoes" :height="4.5" :width="4.5" :style="{
+                    left: '5%',
+                    top: '80%'
+                }" />
+
+        <!-- SLOTS -->
+        <!-- Two rows of five. Row 2 sits `calc(105% + 4.5vw)` down: the cards
+             are 3.5vw tall, so that is a 1vw gutter, and mixing % with vw keeps
+             the gap fixed regardless of how tall the container renders. -->
+        <ClothesItem slot-guid="HOTKEY_SLOT_1" :inv_unique_id="iUniqueId" :item="atHotkey(1)"
+            :show-quantity="true" name="Slot (1)" :height="3.5" :width="3.5" :style="{
+                    left: '8%',
+                    top: '105%'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_2" :inv_unique_id="iUniqueId" :item="atHotkey(2)"
+            :show-quantity="true" name="Slot (2)" :height="3.5" :width="3.5" :style="{
+                    left: '25%',
+                    top: '105%'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_3" :inv_unique_id="iUniqueId" :item="atHotkey(3)"
+            :show-quantity="true" name="Slot (3)" :height="3.5" :width="3.5" :style="{
+                    left: '42%',
+                    top: '105%'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_4" :inv_unique_id="iUniqueId" :item="atHotkey(4)"
+            :show-quantity="true" name="Slot (4)" :height="3.5" :width="3.5" :style="{
+                    left: '59%',
+                    top: '105%'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_5" :inv_unique_id="iUniqueId" :item="atHotkey(5)"
+            :show-quantity="true" name="Slot (5)" :height="3.5" :width="3.5" :style="{
+                    left: '76%',
+                    top: '105%'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_6" :inv_unique_id="iUniqueId" :item="atHotkey(6)"
+            :show-quantity="true" name="Slot (6)" :height="3.5" :width="3.5" :style="{
+                    left: '8%',
+                    top: 'calc(105% + 4.5vw)'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_7" :inv_unique_id="iUniqueId" :item="atHotkey(7)"
+            :show-quantity="true" name="Slot (7)" :height="3.5" :width="3.5" :style="{
+                    left: '25%',
+                    top: 'calc(105% + 4.5vw)'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_8" :inv_unique_id="iUniqueId" :item="atHotkey(8)"
+            :show-quantity="true" name="Slot (8)" :height="3.5" :width="3.5" :style="{
+                    left: '42%',
+                    top: 'calc(105% + 4.5vw)'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_9" :inv_unique_id="iUniqueId" :item="atHotkey(9)"
+            :show-quantity="true" name="Slot (9)" :height="3.5" :width="3.5" :style="{
+                    left: '59%',
+                    top: 'calc(105% + 4.5vw)'
+                }" />
+
+        <ClothesItem slot-guid="HOTKEY_SLOT_10" :inv_unique_id="iUniqueId" :item="atHotkey(10)"
+            :show-quantity="true" name="Slot (10)" :height="3.5" :width="3.5" :style="{
+                    left: '76%',
+                    top: 'calc(105% + 4.5vw)'
+                }" />
+
+    </div>
+</template>
+
+<script lang="ts" setup>
+import { computed, ref } from "vue";
+import ClothesItem from "../components/ClothesItem.vue";
+import { useInventory } from "../store/inventory.store";
+import { useContextMenuStore } from "../store/contextmenu.store";
+import { useInputStore } from "../store/input.store";
+import { useNearbyStore } from "../store/nearby.store";
+
+const inventoryStore = useInventory();
+const contextMenuStore = useContextMenuStore();
+const inputStore = useInputStore();
+const nearbyStore = useNearbyStore();
+
+const me = ref(true);
+
+const friskedInventory = computed(() => {
+    return Object.values(inventoryStore.inventories).find(a => a.isFrisk);
+});
+
+function setFriskTarget() {
+    if (isFrisking.value) {
+        me.value = false;
+    }
+}
+
+const iUniqueId = computed(() => {
+    return me.value ? inventoryStore.playerInventory?.inventoryUniqueId : friskedInventory.value?.inventoryUniqueId;
+});
+
+const selectedWeared = computed(() => {
+    return me.value ?
+        inventoryStore.playerInventory?.items.filter(a => typeof a.slotGUID === 'string')
+        :
+        friskedInventory.value?.items.filter(a => typeof a.slotGUID === 'string');
+});
+
+const isFrisking = computed(() => {
+    return friskedInventory.value ? true : false;
+});
+
+/**
+ * VoidLine: the five Slot cards are ox inventory slots 1-5, not AVP "worn"
+ * items. ox binds hotkey<i> straight to useSlot(i) in client.lua, so whatever
+ * sits in slot N is exactly what pressing N uses -- the card just shows it.
+ */
+const atHotkey = (n: number) => {
+    return inventoryStore.playerInventory?.items.find(a => a.itemHash === `ox-player:${n}`);
+};
+
+const atSlotGUID = (slotGUID: string) => {
+    return selectedWeared.value?.find(a => {
+        return a.slotGUID == slotGUID;
+    });
+}
+
+</script>
+
+
+<style lang="scss" scoped>
+$textstroke: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+
+.clothes-parent {
+    position: absolute;
+    // VoidLine 2026-08-19: was left 5% / top 12%. Pulled toward the top-left so
+    // the whole layout starts near the corner with a deliberate margin, and so
+    // the second row of hotkey cards (slots 6-10) stops falling off the bottom
+    // of the screen -- at 12% it was clipped by the viewport edge.
+    //
+    // These two values and CLOTHES_RIGHT_VW in plugins/ox-adapter.ts are the
+    // whole layout origin. Move one without the other and the grid either
+    // overlaps the clothing column or leaves a gap beside it.
+    left: 2%;
+    top: 3%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    .character-image {
+        position: relative;
+        width: 25vw;
+        height: 35vw;
+        background-image: url("/characters/char_male.png");
+        background-position: center;
+        background-size: cover;
+        background-repeat: no-repeat;
+        opacity: 0.65;
+    }
+
+    .character-selector {
+        position: absolute;
+        top: -3.5vw;
+        display: flex;
+        width: 60%;
+        overflow: hidden;
+        border: .1vw solid rgba(20, 20, 20, .5);
+
+        .character-entry {
+            position: relative;
+            flex: 1;
+            color: white;
+            font-size: .8vw;
+            background-color: rgba(20, 20, 20, .5);
+            white-space: nowrap;
+            overflow: hidden;
+            padding: .25vw 1.75vw;
+            text-align: center;
+            text-shadow: $textstroke;
+            transition: background-color 0.5s ease;
+
+            &:hover {
+                background-color: rgba(119, 96, 96, 0.5);
+            }
+
+            &.active {
+                background-color: rgba(175, 138, 138, 0.5);
+            }
+
+            // &:nth-child(1) {
+            //     clip-path: polygon(20% 0, 100% 0, 100% 100%, 0% 100%);
+            // }
+
+            // &:nth-child(2) {
+            //     clip-path: polygon(0 100%, 0 0, 80% 0, 100% 100%);
+            // }
+        }
+    }
+}
+</style>

@@ -1,0 +1,322 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@500;600&display=swap");
+
+:root {
+    --eye-size: 44px;
+    --accent-color: #FFD700;
+    --bg-color: rgba(0, 0, 0, 0.88);
+    --border-color: rgba(255, 215, 0, 0.6);
+    --text-color: #FFDF4D;
+    --white-trans: rgba(255, 215, 0, 0.45);
+    --icon-def: #FFD700;
+    --hover-bg: rgba(0, 0, 0, 0.96);
+    --shadow-black: rgba(0, 0, 0, 0.7);
+    --eye-rad-start: rgba(255, 215, 0, 0);
+    --eye-rad-active: rgba(255, 215, 0, 0.4);
+    --svg-fill: #FFD700;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    font-family: Inter, sans-serif;
+    background: transparent;
+}
+
+.app-root {
+    width: 100%;
+    height: 100%;
+    visibility: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* =========================
+   CENTER EYE
+   ========================= */
+
+#eye {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--eye-size);
+    height: var(--eye-size);
+    z-index: 10;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    pointer-events: none;
+    opacity: 0;
+
+    transform: translate(-50%, -50%) scale(0.5);
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    background: radial-gradient(
+        circle,
+        var(--eye-rad-start) 0%,
+        transparent 70%
+    );
+}
+
+.ui-visible #eye {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+#eye.eye-active {
+    background: radial-gradient(
+        circle,
+        var(--eye-rad-active) 0%,
+        transparent 70%
+    );
+    border-radius: 50%;
+}
+
+/* =========================
+   EYE ICON
+   ========================= */
+
+#eyeSvg {
+    width: 20px;
+    height: 20px;
+    fill: var(--svg-fill);
+    transition: all 0.3s;
+}
+
+.eye-active #eyeSvg {
+    fill: var(--accent-color);
+    transform: scale(1);
+    filter: drop-shadow(0 0 15px var(--accent-color));
+}
+
+/* =========================
+   OPTIONS
+   ========================= */
+
+#options-wrapper {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    z-index: 99;
+}
+
+.option-container {
+    position: absolute;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+
+    width: 240px;
+    height: 42px;
+
+    padding: 0 14px;
+
+    transform: translate(-50%, -50%) scale(0);
+
+    cursor: pointer;
+    pointer-events: auto;
+
+    box-shadow: 0 4px 12px var(--shadow-black);
+
+    transition: all 0.2s ease;
+
+    z-index: 20;
+
+    animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    animation-delay: var(--anim-delay, 0.2s);
+}
+
+/* Connection line */
+
+.option-container::before {
+    content: "";
+
+    position: absolute;
+    z-index: -1;
+
+    height: 1px;
+
+    background: linear-gradient(
+        90deg,
+        var(--white-trans) 0%,
+        transparent 100%
+    );
+
+    width: var(--line-length, 0px);
+
+    transform-origin: 0% 50%;
+    transform: rotate(var(--line-angle, 0deg));
+
+    left: var(--line-anchor-left, auto);
+    right: var(--line-anchor-right, auto);
+
+    top: 50%;
+
+    animation: growBranch 0.3s ease-out forwards;
+    animation-delay: calc(var(--anim-delay, 0.2s) - 0.1s);
+
+    opacity: 0;
+    pointer-events: none;
+}
+
+.option-container:hover {
+    background: var(--hover-bg);
+    border-color: var(--accent-color);
+
+    z-index: 100;
+
+    transform: translate(-50%, -50%) scale(1.05);
+
+    box-shadow: 0 0 20px var(--eye-rad-active);
+}
+
+.option-container:hover::before {
+    background: linear-gradient(
+        90deg,
+        var(--accent-color) 0%,
+        transparent 100%
+    );
+
+    height: 2px;
+
+    box-shadow: 0 0 10px var(--accent-color);
+
+    opacity: 1;
+
+    transition: all 0.2s;
+}
+
+.option-icon {
+    margin-right: 12px;
+
+    font-size: 14px;
+
+    color: var(--icon-def);
+
+    transition: all 0.2s;
+}
+
+.option-container:hover .option-icon {
+    color: var(--accent-color);
+
+    text-shadow: 0 0 8px var(--accent-color);
+
+    transform: scale(1.1);
+}
+
+.option-label {
+    font-weight: 500;
+    font-size: 13px;
+
+    color: var(--text-color);
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* =========================
+   ANIMATIONS
+   ========================= */
+
+@keyframes growBranch {
+    0% {
+        opacity: 0;
+        transform: rotate(var(--line-angle, 0deg)) scaleX(0);
+    }
+
+    100% {
+        opacity: 1;
+        transform: rotate(var(--line-angle, 0deg)) scaleX(1);
+    }
+}
+
+@keyframes popIn {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0);
+    }
+
+    70% {
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* =========================
+   OPTION POSITIONS
+   ========================= */
+
+.option-container:nth-child(1) {
+    top: -130px;
+    left: 280px;
+}
+
+.option-container:nth-child(2) {
+    top: -65px;
+    left: 310px;
+}
+
+.option-container:nth-child(3) {
+    top: 0;
+    left: 330px;
+}
+
+.option-container:nth-child(4) {
+    top: 65px;
+    left: 310px;
+}
+
+.option-container:nth-child(5) {
+    top: 130px;
+    left: 280px;
+}
+
+.option-container:nth-child(6) {
+    top: -130px;
+    left: -280px;
+}
+
+.option-container:nth-child(7) {
+    top: -65px;
+    left: -310px;
+}
+
+.option-container:nth-child(8) {
+    top: 0;
+    left: -330px;
+}
+
+.option-container:nth-child(9) {
+    top: 65px;
+    left: -310px;
+}
+
+.option-container:nth-child(10) {
+    top: 130px;
+    left: -280px;
+}
+
+.option-container:nth-child(11) {
+    top: -180px;
+    left: 0;
+}
+
+.option-container:nth-child(12) {
+    top: 180px;
+    left: 0;
+}

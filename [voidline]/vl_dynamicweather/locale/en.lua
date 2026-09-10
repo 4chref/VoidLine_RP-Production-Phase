@@ -1,0 +1,138 @@
+-- English (default) locale. Editable — NOT encrypted by escrow.
+-- To add a language: copy this file, change 'en' below, translate the values,
+-- add the file to fxmanifest shared_scripts, then set Config.Locale.
+Locales = Locales or {}
+
+Locales['en'] = {
+    -- Player chat (server-side)
+    chat = {
+        noPermission = "You do not have permission.",
+    },
+
+    -- NUI panel text (forwarded to the UI on open)
+    ui = {
+        header = { subtitle = "Dynamic Weather", close = "Close" },
+
+        panel = {
+            areas = "Areas",
+            backToZones = "Back To Zones Menu",
+            backToCities = "Back To Cities Menu",
+            upNext = "Up Next",
+            dynamic = "Dynamic",
+            static = "Static",
+            noForecast = "No scheduled weather yet.",
+            addWeather = "Add New Weather",
+            enableHint = "Enable dynamic weather to adjust forecast schedules.",
+            changeStatic = "Change Static Weather",
+            changeStaticAll = "Change Static Weather For All",
+            enableDynamic = "Enable Dynamic Weather",
+            disableDynamic = "Disable Dynamic Weather",
+            noZones = "No zones drawn yet.",
+            reorder = "Reorder",
+            wide = "Wide",
+            confirm = "Confirm",
+        },
+
+        map = {
+            zoneEditor = "Zone Editor",
+            forecast = "Forecast",
+            draw = "Draw",
+            reset = "Reset",
+            confirm = "Confirm",
+            drawHint = "Click Draw to add a zone.",
+            overlap = "Zones cannot overlap — adjust the shape and try again.",
+            zoneBase = "Zone Base",
+            cityWide = "City Wide",
+            info = {
+                title = "Zone Editor Help",
+                draw = "Draw: click on the map to add corner points.",
+                box = "Box: click for a ready rectangle — drag corners to resize, drag the center to move.",
+                move = "Shape: drag corner points to reposition them.",
+                addPoint = "Shape: double-click an edge to add a new corner point.",
+                curve = "Shape: drag the mid-edge handle to curve that edge.",
+                confirm = "Press Confirm to create the zone.",
+            },
+            tools = {
+                drawZone = "Draw zone",
+                shape = "Shape",
+                box = "Box",
+                rename = "Rename zone",
+                hide = "Hide zones",
+                undo = "Undo point",
+                redo = "Redo point",
+                resetDraft = "Reset draft",
+                confirm = "Confirm zone",
+                changeColor = "Change color",
+                delete = "Delete zone",
+            },
+        },
+
+        modals = {
+            selectType = "Select Weather Type",
+            temperature = "Temperature",
+            time = "Time",
+            addWeatherCta = "Add Weather",
+            myZone = "My Zone",
+            centigrade = "Centigrade",
+            fahrenheit = "Fahrenheit",
+            changeStaticTitle = "Change Static Weather",
+            createZoneTitle = "Create Weather Zone",
+            createZoneCta = "Create Weather Zone",
+            zoneNameColor = "Zone Name & Color",
+            currentWeather = "Current Weather",
+            renameTitle = "Rename Zone",
+            renameCta = "Save",
+            zoneName = "Zone Name",
+            addTitle = "Add New Weather",
+            editTitle = "Edit Weather",
+            editCta = "Save Weather Details",
+            timeTaken = "There is already a forecast at this time.",
+            prevCastTime = "Previous weather casting time is {time}",
+            currentlyAt = "Currently {weather} at {time}",
+            cancel = "Cancel",
+            confirm = "Confirm",
+            deleteCta = "Delete",
+            deleteZoneTitle = "Delete Zone",
+            deleteZoneMessage = "Are you sure you want to delete this zone? This action cannot be undone.",
+        },
+
+        toast = {
+            weatherSet = "Weather updated",
+            weatherAllSet = "Weather set for all areas",
+            dynamicOn = "Dynamic mode enabled",
+            dynamicOff = "Dynamic mode disabled",
+            zoneCreated = "Zone created",
+            zoneRenamed = "Zone renamed",
+            zoneDeleted = "Zone deleted",
+            forecastAdded = "Forecast added",
+            forecastUpdated = "Forecast updated",
+            forecastRemoved = "Forecast removed",
+        },
+
+        relative = {
+            now = "Now",
+            inMin = "In {n} Min",
+            inHour = "In {n} Hour",
+            inHours = "In {n} Hours",
+        },
+
+        -- Weather type labels (keyed by weather type). Temperature stays in code.
+        weather = {
+            EXTRASUNNY = "Extra Sunny",
+            CLEAR = "Clear",
+            NEUTRAL = "Neutral",
+            SMOG = "Smog",
+            FOGGY = "Foggy",
+            CLOUDS = "Cloudy",
+            OVERCAST = "Overcast",
+            CLEARING = "Clearing",
+            RAIN = "Rainy",
+            THUNDER = "Thunder",
+            SNOWLIGHT = "Light Snow",
+            SNOW = "Snow",
+            BLIZZARD = "Blizzard",
+            XMAS = "Xmas",
+            HALLOWEEN = "Blood Orange", -- slot repurposed by vl_bloodorange (apocalyptic preset)
+        },
+    },
+}

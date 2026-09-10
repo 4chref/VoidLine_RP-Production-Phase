@@ -1,0 +1,122 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+}
+
+.hud-container {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 140px;
+}
+
+.position-bottom-right  { bottom: 22px; right: 22px; }
+.position-bottom-left   { bottom: 22px; left: 22px; }
+.position-top-right     { top: 22px; right: 22px; }
+.position-top-left      { top: 22px; left: 22px; }
+.position-middle-right  { top: 50%; right: 22px; transform: translateY(-50%); }
+.position-middle-left   { top: 50%; left: 22px; transform: translateY(-50%); }
+
+.need-row {
+    display: flex;
+    align-items: center;
+}
+
+.need-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.need-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 5px;
+}
+
+.need-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+.need-pct {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--pct-color, rgba(255, 255, 255, 0.7));
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    transition: color 0.35s ease;
+}
+
+.pills {
+    display: flex;
+    gap: 3px;
+}
+
+.pill {
+    flex: 1;
+    height: 7px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    overflow: hidden;
+    position: relative;
+    transition: background 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+/* each pill segment has its own fixed color when filled: green, yellow,
+   orange, red -- left to right, regardless of which need this is */
+.pill.filled {
+    border-color: transparent;
+}
+
+.pill:nth-child(1).filled {
+    background: #2ecc71;
+    box-shadow: 0 0 6px 1px rgba(46, 204, 113, 0.65);
+}
+
+.pill:nth-child(2).filled {
+    background: #f1c40f;
+    box-shadow: 0 0 6px 1px rgba(241, 196, 15, 0.65);
+}
+
+.pill:nth-child(3).filled {
+    background: #e67e22;
+    box-shadow: 0 0 6px 1px rgba(230, 126, 34, 0.65);
+}
+
+.pill:nth-child(4).filled {
+    background: #e74c3c;
+    box-shadow: 0 0 6px 1px rgba(231, 76, 60, 0.75);
+}
+
+/* percentage text still reflects overall severity */
+.need-row.warn { --pct-color: #f1c40f; }
+.need-row.high { --pct-color: #e67e22; }
+.need-row.crit { --pct-color: #e74c3c; }
+
+.need-row.crit {
+    animation: pulseCrit 1.1s ease-in-out infinite;
+}
+
+@keyframes pulseCrit {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.35); }
+}

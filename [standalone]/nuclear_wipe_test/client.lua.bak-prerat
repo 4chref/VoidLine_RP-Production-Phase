@@ -1,0 +1,645 @@
+local missile = nil
+-- Kept at module scope so cleanupMissile() can stop the exhaust on a mid-flight
+-- /nuclearreset or a resource stop, not only at the end of a completed run.
+local trailHandles = {}
+-- Local-space Z of the model's tail, measured from the model itself at spawn
+-- rather than guessed. See spawnMissile().
+local missileTailZ = -6.0
+
+-- Spin, accumulated in degrees. Held across the three flight phases so the roll
+-- is continuous rather than restarting at each handover.
+local spinAngle = 0.0
+local spinActive = false
+local spinStartedAt = 0
+local eventRunning = false
+local eventToken = 0
+local originalWeather = nil
+local originalHour = nil
+local originalMinute = nil
+
+local function dbg(msg)
+    if Config.Debug then
+        print(('[nuclear_wipe] %s'):format(msg))
+    end
+end
+
+local function loadModel(modelName)
+    local model = joaat(modelName)
+
+    if not IsModelInCdimage(model) or not IsModelValid(model) then
+        dbg(('Invalid model: %s'):format(modelName))
+        return nil
+    end
+
+    RequestModel(model)
+    local timeout = GetGameTimer() + 10000
+
+    while not HasModelLoaded(model) do
+        Wait(0)
+        if GetGameTimer() > timeout then
+            dbg(('Timed out loading model: %s'):format(modelName))
+            return nil
+        end
+    end
+
+    return model
+end
+
+local function stopParticle(handle)
+    if handle and handle ~= 0 then
+        StopParticleFxLooped(handle, false)
+    end
+end
+
+local function ensurePtfxAsset(asset)
+    RequestNamedPtfxAsset(asset)
+    local timeout = GetGameTimer() + 5000
+
+    while not HasNamedPtfxAssetLoaded(asset) do
+        Wait(0)
+        if GetGameTimer() > timeout then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function cross(a, b)
+    return vector3(a.y * b.z - a.z * b.y,
+                   a.z * b.x - a.x * b.z,
+                   a.x * b.y - a.y * b.x)
+end
+
+local function norm(v)
+    local l = #v
+    if l < 0.0001 then return vector3(0.0, 0.0, 1.0) end
+    return v / l
+end
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local function vecLerp(a, b, t)
+    return vector3(
+        lerp(a.x, b.x, t),
+        lerp(a.y, b.y, t),
+        lerp(a.z, b.z, t)
+    )
+end
+
+local function smoothstep(t)
+    t = math.max(0.0, math.min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+end
+
+-- Ballistic, not eased.
+--
+-- The old version ran the horizontal through smoothstep, so the missile crawled
+-- at both ends and sprinted through the middle -- the opposite of how a rocket
+-- actually behaves. Ground speed on a ballistic arc is essentially constant, so
+-- the horizontal is now LINEAR in t and all the shape lives in the vertical: a
+-- parabola, which is what gravity produces. It looks fast low down and appears
+-- to hang at apogee purely because of the geometry, which is the real effect.
+local function getFlightPosition(startPos, targetPos, t)
+    -- Downrange progress is t^PitchOverPower, NOT t. At power 2 its derivative
+    -- is zero at t=0, so the missile has no horizontal speed at the instant the
+    -- cruise begins -- it continues straight up out of the rise phase and tips
+    -- over as it climbs, which is the gravity turn a real launch flies. Linear
+    -- t gave it a sideways kick from the first frame and produced the visible
+    -- kink between vertical launch and cruise.
+    local h = t ^ (Config.PitchOverPower or 2.0)
+
+    local x = lerp(startPos.x, targetPos.x, h)
+    local y = lerp(startPos.y, targetPos.y, h)
+    local z = lerp(startPos.z, targetPos.z, t)
+
+    -- The vertical stays on t so the apogee still lands mid-flight rather than
+    -- being dragged downrange with the horizontal.
+    local arc = (Config.ArcHeight or 900.0) * (4.0 * t * (1.0 - t))
+    return vector3(x, y, z + arc)
+end
+
+-- Advances the spin and returns the roll to apply this frame.
+--
+-- Ramped in over Config.Spin.rampSeconds rather than switched on: a missile
+-- that snaps from dead still to 120 deg/s in one frame reads as a glitch.
+local function updateSpin(pos, dt)
+    local cfg = Config.Spin
+    if not cfg or not cfg.enabled then return 0.0 end
+
+    if not spinActive then
+        if pos.z < (cfg.startHeight or 10.0) then return 0.0 end
+        spinActive = true
+        spinStartedAt = GetGameTimer()
+        dbg(('spin started at z=%.1f'):format(pos.z))
+    end
+
+    local ramp = 1.0
+    local rampMs = (cfg.rampSeconds or 0.0) * 1000.0
+    if rampMs > 0 then
+        ramp = math.min((GetGameTimer() - spinStartedAt) / rampMs, 1.0)
+    end
+
+    spinAngle = (spinAngle + (cfg.speed or 120.0) * ramp * dt) % 360.0
+    return spinAngle
+end
+
+-- Orients the missile along its flight path with a true roll about its own
+-- length, by building the rotation directly instead of using euler angles.
+--
+-- SetEntityRotation cannot do this. Its roll component turns the entity about a
+-- TRANSVERSE axis, so feeding the spin into it made the missile wobble end over
+-- end rather than rotate about its length -- there is no euler component that
+-- means "spin about my long axis" once the model has been pitched and yawed.
+--
+-- So: build an orthonormal basis with the model's +Z (its nose) on the flight
+-- direction, roll that basis about the direction itself, and hand the result to
+-- SetEntityQuaternion. Verified to put local +Z exactly on the flight vector
+-- for every direction and roll.
+local function pointMissileAt(entity, fromPos, toPos, roll)
+    local d = toPos - fromPos
+    local len = #d
+    -- Degenerate step: keep the current orientation rather than snapping.
+    if len < 0.0001 then return end
+    local f = d / len
+
+    -- Any reference not parallel to f works; swap it near vertical so the cross
+    -- product does not collapse during the vertical launch.
+    local ref = (math.abs(f.z) > 0.99) and vector3(0.0, 1.0, 0.0) or vector3(0.0, 0.0, 1.0)
+
+    local r = norm(cross(ref, f))
+    local u = cross(f, r)
+
+    local a = math.rad(roll or 0.0)
+    local c, sn = math.cos(a), math.sin(a)
+    local rx = norm(r * c + u * sn)   -- right, rolled about f
+    local ux = cross(f, rx)           -- up, completing the basis
+
+    -- Columns X=rx, Y=ux, Z=f  (GTA: X right, Y forward, Z up; this model's
+    -- nose is its +Z, which is why f goes in the Z column).
+    local m00, m01, m02 = rx.x, ux.x, f.x
+    local m10, m11, m12 = rx.y, ux.y, f.y
+    local m20, m21, m22 = rx.z, ux.z, f.z
+
+    local qx, qy, qz, qw
+    local tr = m00 + m11 + m22
+    if tr > 0.0 then
+        local S = math.sqrt(tr + 1.0) * 2.0
+        qw = 0.25 * S; qx = (m21 - m12) / S; qy = (m02 - m20) / S; qz = (m10 - m01) / S
+    elseif m00 > m11 and m00 > m22 then
+        local S = math.sqrt(1.0 + m00 - m11 - m22) * 2.0
+        qw = (m21 - m12) / S; qx = 0.25 * S; qy = (m01 + m10) / S; qz = (m02 + m20) / S
+    elseif m11 > m22 then
+        local S = math.sqrt(1.0 + m11 - m00 - m22) * 2.0
+        qw = (m02 - m20) / S; qx = (m01 + m10) / S; qy = 0.25 * S; qz = (m12 + m21) / S
+    else
+        local S = math.sqrt(1.0 + m22 - m00 - m11) * 2.0
+        qw = (m10 - m01) / S; qx = (m02 + m20) / S; qy = (m12 + m21) / S; qz = 0.25 * S
+    end
+
+    SetEntityQuaternion(entity, qx, qy, qz, qw)
+end
+
+local function spawnMissile()
+    if DoesEntityExist(missile) then
+        DeleteEntity(missile)
+        missile = nil
+    end
+
+    local model = loadModel(Config.MissileModel)
+    if not model then return false end
+
+    local p = Config.LaunchCoords
+    missile = CreateObject(model, p.x, p.y, p.z, false, false, false)
+    if not DoesEntityExist(missile) then
+        dbg('Failed to create missile entity.')
+        SetModelAsNoLongerNeeded(model)
+        return false
+    end
+
+    -- MEASURE the model instead of hardcoding where the engine bell is.
+    --
+    -- Guessed offsets kept landing the exhaust mid-body, because a prop's
+    -- origin is not reliably at its centre -- this one sits near the nose. The
+    -- bounding box gives the real answer: the rocket's long axis is Z, so the
+    -- tail is the box's minimum Z, in the same local space the particle offsets
+    -- use.
+    local mn, mx = GetModelDimensions(model)
+    if mn and mx then
+        missileTailZ = mn.z
+        dbg(('model bounds z: %.2f .. %.2f (length %.2f m) -> tail at %.2f')
+            :format(mn.z, mx.z, mx.z - mn.z, missileTailZ))
+    else
+        dbg('GetModelDimensions failed; falling back to a -6.0 tail offset')
+        missileTailZ = -6.0
+    end
+
+    SetEntityAsMissionEntity(missile, true, true)
+    SetEntityInvincible(missile, true)
+    FreezeEntityPosition(missile, true)
+    SetEntityCollision(missile, false, false)
+    SetEntityLodDist(missile, 10000)
+    SetObjectTextureVariation(missile, 0)
+
+    SetModelAsNoLongerNeeded(model)
+
+    return true
+end
+
+-- Exhaust: several looped effects on the tail at once, so fire and smoke read
+-- as one plume. Returns a list of handles -- the caller stops them all.
+--
+-- Every entry is attempted and any that fails is skipped, because which ptfx
+-- names exist varies by build and a missing one would otherwise take the whole
+-- trail with it.
+local function createTrail()
+    local handles = {}
+
+    local function tryList(list)
+        if type(list) ~= 'table' then return end
+        for _, fx in ipairs(list) do
+            if ensurePtfxAsset(fx.asset) then
+                UseParticleFxAssetNextCall(fx.asset)
+                -- offsetZ is now RELATIVE TO THE MEASURED TAIL: 0 sits exactly
+                -- at the engine bell, negative trails further behind it.
+                local z = missileTailZ + (fx.offsetZ or 0.0)
+                -- rotX 180 turns the emitter to fire back along the missile's
+                -- own axis. Without it these effects spray along their own +Z,
+                -- which is world-up once the missile pitches over -- that is
+                -- the plume climbing into the sky instead of trailing behind.
+                local h = StartParticleFxLoopedOnEntity(
+                    fx.name,
+                    missile,
+                    0.0, 0.0, z,
+                    fx.rotX or 180.0, 0.0, 0.0,
+                    fx.scale or 3.0,
+                    false, false, false
+                )
+                if h and h ~= 0 then
+                    -- Tint AFTER starting: SetParticleFxLoopedColour needs a
+                    -- live handle. This is what makes the smoke black and the
+                    -- flame orange without relying on a specific ptfx existing.
+                    if fx.colour and SetParticleFxLoopedColour then
+                        pcall(SetParticleFxLoopedColour, h,
+                            (fx.colour[1] or 255) / 255.0,
+                            (fx.colour[2] or 255) / 255.0,
+                            (fx.colour[3] or 255) / 255.0,
+                            false)
+                    end
+                    if fx.alpha and SetParticleFxLoopedAlpha then
+                        pcall(SetParticleFxLoopedAlpha, h, fx.alpha)
+                    end
+
+                    handles[#handles + 1] = h
+                    dbg(('trail: %s attached'):format(fx.name))
+                else
+                    dbg(('trail: %s produced no handle, skipped'):format(fx.name))
+                end
+            end
+        end
+    end
+
+    trailHandles = handles
+    tryList(Config.TrailEffects)
+    if #handles == 0 then
+        dbg('trail: no configured effect loaded, trying fallbacks')
+        tryList(Config.TrailFallbacks)
+    end
+    if #handles == 0 then
+        dbg('trail: NO exhaust particles could be created on this build')
+    end
+
+    return handles
+end
+
+local function stopTrail(handles)
+    if type(handles) ~= 'table' then return end
+    for _, h in ipairs(handles) do
+        stopParticle(h)
+    end
+end
+
+local function createWaterLaunchEffect(pos)
+    if not ensurePtfxAsset('core') then return end
+
+    UseParticleFxAssetNextCall('core')
+    StartParticleFxNonLoopedAtCoord(
+        'water_splash',
+        pos.x, pos.y, math.max(pos.z, -1.0),
+        0.0, 0.0, 0.0,
+        5.0,
+        false, false, false
+    )
+end
+
+local function createImpactEffects(pos)
+    dbg(('Impact at %.2f %.2f %.2f'):format(pos.x, pos.y, pos.z))
+
+    -- Initial nuclear fireball.
+    if Config.EnableExplosion then
+        AddExplosion(
+            pos.x, pos.y, pos.z,
+            Config.ExplosionType,
+            Config.ExplosionDamageScale,
+            Config.ExplosionAudible,
+            Config.ExplosionInvisible,
+            1.0
+        )
+
+        -- Secondary blasts spread around the center to sell the scale.
+        local secondary = {
+            vector3(35.0, 0.0, 2.0),
+            vector3(-35.0, 0.0, 2.0),
+            vector3(0.0, 35.0, 2.0),
+            vector3(0.0, -35.0, 2.0),
+            vector3(22.0, 22.0, 2.0),
+            vector3(-22.0, -22.0, 2.0),
+        }
+
+        for _, offset in ipairs(secondary) do
+            AddExplosion(
+                pos.x + offset.x,
+                pos.y + offset.y,
+                pos.z + offset.z,
+                2,
+                2.5,
+                false,
+                true,
+                0.8
+            )
+        end
+    end
+
+    -- Bright flash / smoke column.
+    if ensurePtfxAsset('core') then
+        UseParticleFxAssetNextCall('core')
+        StartParticleFxNonLoopedAtCoord(
+            'ent_sht_steam',
+            pos.x, pos.y, pos.z + 8.0,
+            0.0, 0.0, 0.0,
+            8.0,
+            false, false, false
+        )
+
+        UseParticleFxAssetNextCall('core')
+        StartParticleFxNonLoopedAtCoord(
+            'ent_amb_smoke_foundry',
+            pos.x, pos.y, pos.z + 3.0,
+            0.0, 0.0, 0.0,
+            6.0,
+            false, false, false
+        )
+    end
+
+    -- A ring of ground fires.
+    if Config.EnableFireRing and ensurePtfxAsset('core') then
+        for i = 1, 24 do
+            local angle = math.rad((360.0 / 24.0) * i)
+            local radius = 65.0 + math.random(-10, 10)
+            local x = pos.x + math.cos(angle) * radius
+            local y = pos.y + math.sin(angle) * radius
+            local z = pos.z + 0.2
+
+            UseParticleFxAssetNextCall('core')
+            StartParticleFxNonLoopedAtCoord(
+                'fire_wrecked_plane_cockpit',
+                x, y, z,
+                0.0, 0.0, 0.0,
+                2.0,
+                false, false, false
+            )
+        end
+    end
+end
+
+local function applyPlayerEffects(impactPos, token)
+    if not Config.EnablePlayerEffects then return end
+
+    CreateThread(function()
+        local ped = PlayerPedId()
+        local playerPos = GetEntityCoords(ped)
+        local distance = #(playerPos - impactPos)
+
+        if distance <= Config.PlayerEffectRadius then
+            ShakeGameplayCam('LARGE_EXPLOSION_SHAKE', 1.5)
+            AnimpostfxPlay('DrugsMichaelAliensFight', 0, false)
+            AnimpostfxPlay('Rampage', 0, false)
+
+            DoScreenFadeOut(250)
+            Wait(500)
+            DoScreenFadeIn(1200)
+
+            if distance <= Config.PlayerRagdollRadius then
+                SetPedToRagdoll(ped, 3500, 3500, 0, false, false, false)
+            end
+
+            local damage = math.floor(Config.PlayerDamage * math.max(0.2, 1.0 - (distance / Config.PlayerEffectRadius)))
+            ApplyDamageToPed(ped, damage, false)
+
+            -- Temporary ringing/heartbeat-style screen effect.
+            PlaySoundFrontend(-1, '5_Second_Countdown', 'DLC_HEISTS_GENERAL_FRONTEND_SOUNDS', true)
+            Wait(Config.ShakeDuration)
+
+            AnimpostfxStop('DrugsMichaelAliensFight')
+            AnimpostfxStop('Rampage')
+        end
+    end)
+end
+
+local function saveWorldState()
+    originalWeather = GetPrevWeatherTypeHashName()
+    originalHour = GetClockHours()
+    originalMinute = GetClockMinutes()
+end
+
+local function setAftermathWorld()
+    if not Config.EnableGlobalWeather then return end
+
+    SetWeatherTypeOvertimePersist(Config.AftermathWeather, 5.0)
+    SetWeatherTypeNowPersist(Config.AftermathWeather)
+    SetWeatherTypeNow(Config.AftermathWeather)
+    SetOverrideWeather(Config.AftermathWeather)
+    NetworkOverrideClockTime(Config.AftermathTime, 0, 0)
+end
+
+local function resetWorld()
+    ClearOverrideWeather()
+    ClearWeatherTypePersist()
+    SetWeatherTypeNowPersist('CLEAR')
+    SetWeatherTypeNow('CLEAR')
+
+    if originalHour then
+        NetworkOverrideClockTime(originalHour, originalMinute or 0, 0)
+    end
+end
+
+local function cleanupMissile()
+    -- Stop the exhaust BEFORE deleting the entity it is attached to. Deleting
+    -- first usually takes the particles with it, but not reliably when the
+    -- entity is already gone -- and an orphaned looped ptfx never expires.
+    stopTrail(trailHandles)
+    trailHandles = {}
+
+    if DoesEntityExist(missile) then
+        DeleteEntity(missile)
+    end
+    missile = nil
+end
+
+local function runNuclearEvent(token)
+    saveWorldState()
+
+    -- Reset per launch, or a second run would start already spinning.
+    spinAngle = 0.0
+    spinActive = false
+
+    if not spawnMissile() then
+        eventRunning = false
+        return
+    end
+
+    dbg('Missile spawned underwater.')
+    TriggerEvent('nuclear_wipe:localAnnouncement', '~r~NUCLEAR MISSILE DETECTED')
+
+    local trail = createTrail()
+    local launchStart = GetGameTimer()
+    local launchOrigin = Config.LaunchCoords
+    local waterExit = vector3(launchOrigin.x, launchOrigin.y, 4.0)
+
+    -- Rise from underwater.
+    while eventRunning and token == eventToken do
+        local elapsed = (GetGameTimer() - launchStart) / 1000.0
+        local t = math.min(elapsed / Config.RiseDuration, 1.0)
+        local p = smoothstep(t)
+        local pos = vecLerp(launchOrigin, waterExit, p)
+        SetEntityCoordsNoOffset(missile, pos.x, pos.y, pos.z, false, false, false)
+        pointMissileAt(missile, pos, vector3(pos.x, pos.y, pos.z + 10.0), updateSpin(pos, GetFrameTime()))
+
+        if t >= 1.0 then break end
+        Wait(0)
+    end
+
+    createWaterLaunchEffect(waterExit)
+
+    -- The trail is NOT restarted between phases. It used to be stopped and
+    -- recreated at every handover, which put a visible gap in the plume exactly
+    -- at the moments the missile is most visible.
+
+    -- Cruise. Ends directly ABOVE the target at Config.ApproachAltitude rather
+    -- than on it, so the descent below has somewhere to fall from.
+    local flightStart = GetGameTimer()
+    local flightOrigin = waterExit
+    local approachPoint = vector3(
+        Config.TargetCoords.x,
+        Config.TargetCoords.y,
+        Config.TargetCoords.z + (Config.ApproachAltitude or 420.0)
+    )
+
+    while eventRunning and token == eventToken do
+        local elapsed = (GetGameTimer() - flightStart) / 1000.0
+        local t = math.min(elapsed / Config.FlightDuration, 1.0)
+        local pos = getFlightPosition(flightOrigin, approachPoint, t)
+
+        -- Small lookahead: with the gravity turn the direction changes fastest
+        -- early on, and a coarse step there makes the nose lag the flight path.
+        local nextPos = getFlightPosition(flightOrigin, approachPoint, math.min(t + 0.002, 1.0))
+        SetEntityCoordsNoOffset(missile, pos.x, pos.y, pos.z, false, false, false)
+        pointMissileAt(missile, pos, nextPos, updateSpin(pos, GetFrameTime()))
+
+        if t >= 1.0 then break end
+        Wait(0)
+    end
+
+    -- Terminal descent. t*t rather than smoothstep: a falling warhead
+    -- accelerates all the way in, it does not ease to a gentle stop just before
+    -- the ground.
+    local descentStartPos = GetEntityCoords(missile)
+    local descentStart = GetGameTimer()
+
+    while eventRunning and token == eventToken do
+        local elapsed = (GetGameTimer() - descentStart) / 1000.0
+        local t = math.min(elapsed / Config.DescentDuration, 1.0)
+        local p = t * t
+        local pos = vecLerp(descentStartPos, Config.TargetCoords, p)
+        local nextPos = vecLerp(descentStartPos, Config.TargetCoords, math.min(p + 0.02, 1.0))
+
+        SetEntityCoordsNoOffset(missile, pos.x, pos.y, pos.z, false, false, false)
+        pointMissileAt(missile, pos, nextPos, updateSpin(pos, GetFrameTime()))
+
+        if t >= 1.0 then break end
+        Wait(0)
+    end
+
+    stopTrail(trail)
+
+    if not eventRunning or token ~= eventToken then
+        cleanupMissile()
+        return
+    end
+
+    -- Impact.
+    TriggerEvent('nuclear_wipe:localAnnouncement', '~r~☢ NUCLEAR IMPACT ☢')
+    createImpactEffects(Config.TargetCoords)
+    applyPlayerEffects(Config.TargetCoords, token)
+    cleanupMissile()
+
+    Wait(1500)
+    setAftermathWorld()
+    dbg('Aftermath weather applied.')
+
+    Wait(Config.AftermathDuration * 1000)
+
+    if eventRunning and token == eventToken then
+        resetWorld()
+        eventRunning = false
+        TriggerServerEvent('nuclear_wipe:finished')
+        dbg('Nuclear event finished and world reset.')
+    end
+end
+
+RegisterNetEvent('nuclear_wipe:start', function()
+    if eventRunning then return end
+
+    eventRunning = true
+    eventToken = eventToken + 1
+    local token = eventToken
+
+    CreateThread(function()
+        runNuclearEvent(token)
+    end)
+end)
+
+RegisterNetEvent('nuclear_wipe:reset', function()
+    eventToken = eventToken + 1
+    eventRunning = false
+    cleanupMissile()
+    AnimpostfxStop('DrugsMichaelAliensFight')
+    AnimpostfxStop('Rampage')
+    resetWorld()
+    dbg('Event manually reset.')
+end)
+
+RegisterNetEvent('nuclear_wipe:notify', function(message)
+    TriggerEvent('chat:addMessage', {
+        color = {255, 80, 80},
+        args = {'NUCLEAR', message}
+    })
+end)
+
+RegisterNetEvent('nuclear_wipe:localAnnouncement', function(message)
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(message)
+    EndTextCommandThefeedPostTicker(false, false)
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+
+    eventToken = eventToken + 1
+    eventRunning = false
+    cleanupMissile()
+    AnimpostfxStop('DrugsMichaelAliensFight')
+    AnimpostfxStop('Rampage')
+end)

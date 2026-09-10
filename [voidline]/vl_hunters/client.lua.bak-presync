@@ -1,0 +1,351 @@
+--[[
+    vl_hunters -- hostile packs that spawn around the player and patrol on foot.
+
+    One scan loop and one spawn loop drive every pack in VLHunters.packs; see
+    config.lua for why this is client-side and how a pack is described.
+]]
+
+if not VLHunters.enabled then return end
+
+--- ped handle -> { pack = <pack>, anchor = vec3, patrolAt = ms, fightAt = ms }
+local live = {}
+
+--- pack id -> how many of that pack are alive
+local counts = {}
+
+local function dbg(msg, ...)
+    if VLHunters.debug then print(('[vl_hunters] ' .. msg):format(...)) end
+end
+
+-- =============================================================================
+-- HELPERS
+-- =============================================================================
+
+--- Is a point roughly within the player's field of view?
+---
+--- Pure maths on the gameplay camera. An earlier version called
+--- HasEntityClearLosToCoord, which does not exist -- every attempt threw, and
+--- with debug off nothing was printed, so nothing ever spawned and there was no
+--- clue why. IsSphereVisible would have been the same gamble: no other resource
+--- on this server uses it either. GetGameplayCamCoord and GetGameplayCamRot are
+--- used by 7 and 8 other files here, so they are certain.
+---@param p vector3
+---@return boolean
+local function inView(p)
+    local cam = GetGameplayCamCoord()
+    local rot = GetGameplayCamRot(2)
+
+    local rx, rz = math.rad(rot.x), math.rad(rot.z)
+    local cosRx = math.cos(rx)
+    local fwd = vector3(-math.sin(rz) * cosRx, math.cos(rz) * cosRx, math.sin(rx))
+
+    local to = p - cam
+    local len = #to
+    if len < 0.01 then return true end
+
+    -- Written out by hand: FiveM's vector3 has NO `:dot()` method.
+    -- vl_panel/client/airraid.lua:148 defines exactly this helper for exactly
+    -- that reason.
+    local nx, ny, nz = to.x / len, to.y / len, to.z / len
+    local d = nx * fwd.x + ny * fwd.y + nz * fwd.z
+
+    -- cos(60 degrees) = 0.5 -- the forward 120-degree cone. Wider than the real
+    -- FOV on purpose, since a spawn just off screen is one the player can whip
+    -- round and catch.
+    return d > 0.5
+end
+
+--- A spawn position at a random bearing around the player.
+---@param pack table
+---@return vector3|nil
+local function findSpot(pack)
+    local s = pack.spawn
+    local me = GetEntityCoords(cache.ped)
+
+    for _ = 1, s.attempts do
+        local angle = math.random() * math.pi * 2
+        local dist = s.minDistance + math.random() * (s.maxDistance - s.minDistance)
+        local x = me.x + math.cos(angle) * dist
+        local y = me.y + math.sin(angle) * dist
+
+        local spot
+
+        if s.useRoadNodes then
+            -- Streets: snap to the road network, then off the carriageway so
+            -- they are not standing in traffic.
+            local ok, node = GetClosestVehicleNode(x, y, me.z, 1, 3.0, 0)
+            if ok then
+                local safe, coords = GetSafeCoordForPed(node.x, node.y, node.z, true, 16)
+                spot = safe and coords or node
+            end
+        else
+            -- Anywhere walkable. GetSafeCoordForPed finds standable ground
+            -- from the raw point, so a pack with useRoadNodes = false turns up
+            -- in yards and alleys rather than only on roads.
+            local safe, coords = GetSafeCoordForPed(x, y, me.z, true, 16)
+            spot = safe and coords or nil
+        end
+
+        if spot then
+            local d = spot - me
+            local dSq = d.x * d.x + d.y * d.y + d.z * d.z
+
+            if dSq >= s.minDistance * s.minDistance and dSq <= s.maxDistance * s.maxDistance then
+                if not s.requireOutOfSight or not inView(spot) then
+                    return spot
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+-- =============================================================================
+-- SPAWNING
+-- =============================================================================
+
+---@param pack table
+---@param coords vector3
+local function spawnOne(pack, coords)
+    local p = pack.ped
+    local model = joaat(p.model)
+
+    if not lib.requestModel(model, 10000) then
+        dbg('[%s] model "%s" would not load', pack.id, p.model)
+        return
+    end
+
+    -- 4 = PED_TYPE_CIVMALE.
+    local ped = CreatePed(4, model, coords.x, coords.y, coords.z, math.random(0, 359) + 0.0, false, true)
+    SetModelAsNoLongerNeeded(model)
+
+    if not DoesEntityExist(ped) then return end
+
+    -- Max health FIRST: SetEntityHealth is clamped to the current maximum, so
+    -- setting health before raising the cap silently gives the stock 200.
+    SetPedMaxHealth(ped, p.health)
+    SetEntityHealth(ped, p.health)
+    if (p.armour or 0) > 0 then SetPedArmour(ped, p.armour) end
+
+    -- Kept conditional even though every current pack is armed: an unarmed
+    -- pack would otherwise be handed a weapon hash of nil.
+    if p.weapon then
+        GiveWeaponToPed(ped, joaat(p.weapon), p.ammo or 100, false, true)
+        SetPedAccuracy(ped, p.accuracy or 40)
+        SetPedCombatRange(ped, 2)          -- engage at range
+    else
+        SetPedCombatRange(ped, 0)          -- close in
+    end
+
+    SetPedCombatAbility(ped, p.combatAbility or 2)
+    SetPedCombatMovement(ped, 2)           -- will advance
+    SetPedCombatAttributes(ped, 0, true)   -- BF_CanUseCover
+    SetPedCombatAttributes(ped, 5, true)   -- BF_AlwaysFight
+    SetPedCombatAttributes(ped, 46, true)
+    SetPedFleeAttributes(ped, 0, false)    -- never runs
+    SetPedDropsWeaponsWhenDead(ped, false)
+
+    -- Hostile to players in its OWN group, so no shared relationship group is
+    -- touched. AddRelationshipGroup first -- assigning a group that was never
+    -- created leaves the ped in one that hates nobody. This is
+    -- vl_combat_drone/client/combat.lua:590's proven pattern.
+    local groupName = 'VL_HUNTER_' .. string.upper(pack.id)
+    AddRelationshipGroup(groupName)
+    SetPedRelationshipGroupHash(ped, joaat(groupName))
+    SetRelationshipBetweenGroups(5, joaat(groupName), `PLAYER`)
+
+    -- A clipset must be STREAMED IN before SetPedMovementClipset takes; calling
+    -- it on an unloaded set silently does nothing. Skipped entirely for animals,
+    -- which have their own locomotion.
+    if p.walkClipset then
+        if not HasAnimSetLoaded(p.walkClipset) then
+            RequestAnimSet(p.walkClipset)
+            local deadline = GetGameTimer() + 1000
+            while not HasAnimSetLoaded(p.walkClipset) and GetGameTimer() < deadline do
+                Wait(0)
+            end
+        end
+        if HasAnimSetLoaded(p.walkClipset) then
+            SetPedMovementClipset(ped, p.walkClipset, 1.0)
+        end
+    end
+
+    SetPedAlertness(ped, 3)
+    SetBlockingOfNonTemporaryEvents(ped, false)
+
+    -- Ours to delete. Without this the engine can cull it as ambient population
+    -- while it is still tracked here, leaving a dead handle behind.
+    SetEntityAsMissionEntity(ped, true, true)
+
+    live[ped] = { pack = pack, anchor = coords, patrolAt = nil, fightAt = nil }
+    counts[pack.id] = (counts[pack.id] or 0) + 1
+    dbg('[%s] spawned at %.0f, %.0f (%d live)', pack.id, coords.x, coords.y, counts[pack.id])
+end
+
+-- =============================================================================
+-- BEHAVIOUR
+-- =============================================================================
+
+local function patrol(ped, data)
+    local w = data.pack.patrol
+    local now = GetGameTimer()
+
+    if data.patrolAt and (now - data.patrolAt) < w.reissueMs then return end
+    data.patrolAt = now
+
+    local a = data.anchor
+    TaskWanderInArea(ped, a.x, a.y, a.z, w.radius + 0.0, w.minimalLength + 0.0, w.timeBetweenWalks + 0.0)
+end
+
+---@return boolean fighting -- true whenever the ped is engaged, whether or not
+---                            the task was re-issued on this tick
+local function fight(ped, data, distSq)
+    local c = data.pack.combat
+    local committed = data.fightAt ~= nil and IsPedInCombat(ped, 0)
+
+    if committed then
+        if distSq > c.keepRadius * c.keepRadius then
+            data.fightAt = nil
+            return false
+        end
+    else
+        if distSq > c.detectRadius * c.detectRadius then return false end
+        -- Sight is what makes them hunt rather than simply know.
+        if not HasEntityClearLosToEntity(ped, cache.ped, 17) then return false end
+    end
+
+    local now = GetGameTimer()
+    if data.fightAt and (now - data.fightAt) < c.reissueMs then return true end
+    data.fightAt = now
+
+    TaskCombatPed(ped, cache.ped, 0, 16)
+    return true
+end
+
+-- =============================================================================
+-- LOOPS
+-- =============================================================================
+
+local function despawn(ped, data)
+    live[ped] = nil
+    local id = data and data.pack and data.pack.id
+    if id then counts[id] = math.max(0, (counts[id] or 1) - 1) end
+
+    if DoesEntityExist(ped) then
+        SetEntityAsMissionEntity(ped, true, true)
+        DeleteEntity(ped)
+    end
+end
+
+CreateThread(function()
+    while true do
+        Wait(VLHunters.performance.tickMs)
+
+        local me = GetEntityCoords(cache.ped)
+
+        for ped, data in pairs(live) do
+            if not DoesEntityExist(ped) then
+                despawn(ped, data)
+            else
+                local d = GetEntityCoords(ped) - me
+                local dSq = d.x * d.x + d.y * d.y + d.z * d.z
+                local despawnSq = data.pack.spawn.despawnDistance ^ 2
+
+                if dSq > despawnSq then
+                    despawn(ped, data)
+                elseif not IsPedDeadOrDying(ped, true) then
+                    if not fight(ped, data, dSq) then
+                        patrol(ped, data)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+--- One spawn loop per pack, so their cadences are independent.
+local function runSpawnLoop(pack)
+    CreateThread(function()
+        while true do
+            Wait(pack.spawn.intervalMs)
+
+            if (counts[pack.id] or 0) < pack.spawn.max
+                and not IsPlayerDead(cache.playerId)
+                and LocalPlayer.state.isDead ~= true
+                and math.random() < pack.spawn.chance
+            then
+                local ok, spot = pcall(findSpot, pack)
+
+                if not ok then
+                    -- Never fail silently: one bad native used to stop the
+                    -- whole feature with nothing in the console.
+                    print(('[vl_hunters] [%s] spawn search errored: %s'):format(pack.id, tostring(spot)))
+                elseif spot then
+                    spawnOne(pack, spot)
+                else
+                    dbg('[%s] no spot found this cycle', pack.id)
+                end
+            end
+        end
+    end)
+end
+
+-- =============================================================================
+-- START
+-- =============================================================================
+
+CreateThread(function()
+    Wait(2000)
+
+    -- Natives this resource calls that are NOT already used elsewhere on this
+    -- server, checked for existence up front. A missing native in FiveM Lua is
+    -- simply a nil global, so it can be tested rather than discovered by
+    -- crashing -- which is exactly how HasEntityClearLosToCoord took this whole
+    -- resource down silently.
+    local missing = {}
+    for _, name in ipairs({
+        'GetClosestVehicleNode', 'GetSafeCoordForPed', 'SetPedMaxHealth',
+        'TaskWanderInArea', 'TaskCombatPed', 'SetPedMovementClipset',
+        'AddRelationshipGroup',
+    }) do
+        if type(_G[name]) ~= 'function' then missing[#missing + 1] = name end
+    end
+
+    if #missing > 0 then
+        print('[vl_hunters] MISSING NATIVES: ' .. table.concat(missing, ', '))
+        return
+    end
+
+    for _, pack in ipairs(VLHunters.packs) do
+        if pack.enabled == false then
+            dbg('[%s] disabled in config', pack.id)
+        elseif not IsModelInCdimage(joaat(pack.ped.model)) then
+            print(('[vl_hunters] [%s] model "%s" is NOT available on this client.')
+                :format(pack.id, pack.ped.model))
+        else
+            -- IsModelAPed stays a WARNING rather than a hard stop. It returns
+            -- false for some models that spawn perfectly well, and as a gate it
+            -- silently disables a whole pack while the model is fine.
+            -- IsModelInCdimage above is the check that actually matters: it
+            -- answers "can this client load it".
+            if not IsModelAPed(joaat(pack.ped.model)) then
+                dbg('[%s] "%s" is not reported as a ped model -- continuing anyway',
+                    pack.id, pack.ped.model)
+            end
+
+            dbg('[%s] model "%s" ok -- max %d', pack.id, pack.ped.model, pack.spawn.max)
+            runSpawnLoop(pack)
+        end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    for ped in pairs(live) do
+        if DoesEntityExist(ped) then
+            SetEntityAsMissionEntity(ped, true, true)
+            DeleteEntity(ped)
+        end
+    end
+end)

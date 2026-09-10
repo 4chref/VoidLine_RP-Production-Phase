@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>vl_dangerzone</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="bar-top" class="letterbox"></div>
+<div id="bar-bottom" class="letterbox"></div>
+
+<div id="alert" class="alert">
+    <div class="alert-line">
+        <span class="label">YOU ARE ENTERING A DANGER ZONE</span>
+    </div>
+    <div class="alert-line small">
+        <span class="key">ZONE NAME</span>
+        <span class="sep">:</span>
+        <span id="zone-name" class="value"></span>
+    </div>
+    <div class="alert-line small">
+        <span class="key">TYPE OF DANGER</span>
+        <span class="sep">:</span>
+        <span id="zone-type" class="value"></span>
+    </div>
+</div>
+
+<audio id="alert-sound" preload="auto"></audio>
+
+<script src="app.js"></script>
+</body>
+</html>

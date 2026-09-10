@@ -1,0 +1,356 @@
+/* =============================================================================
+   ox_inventory  --  AVP Grid Inventory skin
+
+   WHAT THIS IS
+   A pure presentation layer, loaded AFTER ox_inventory's own index.css. It
+   restyles the shipped React bundle to look like avp_grid_inventory. Nothing
+   here touches behaviour: assets/index.js is untouched, so drag and drop, stack
+   splitting, containers, weapons, shops, stashes, metadata, durability, the
+   weight system, NUI callbacks and every export/event behave exactly as
+   ox_inventory shipped them.
+
+   WHY A SKIN AND NOT A FORK
+   ox_inventory ships web/build only -- there is no web/src and no package.json
+   in the resource, so the React tree cannot be rebuilt from here. That fixes
+   the DOM: this file can restyle any element ox renders, but cannot add,
+   remove or re-nest one. See KNOWN LIMIT at the bottom.
+
+   SOURCE OF THE DESIGN
+   Values are lifted from the AVP sources, not eyeballed:
+     source/cef/src/views/Inventory.vue          -- header, footer, weight bar
+     source/cef/src/components/InventoryItem.vue -- item tile, labels, hover
+   The original AVP resource is untouched; a full copy also sits in
+   _backups/<date>/avp_grid_inventory_ORIGINAL.
+
+   RETUNING
+   Everything is driven by the tokens in :root. --avp-slot and --avp-cols set
+   the grid geometry; the container height is derived from them so rows stay
+   aligned automatically.
+
+   REMOVING
+   Delete the <link> to this file from ../index.html. Nothing else refers to it.
+
+   ON UPDATES
+   Updating ox_inventory replaces web/build and will drop this file, the font
+   and the <link>. Keep a copy.
+   ========================================================================== */
+
+@font-face {
+    font-family: 'numans';
+    src: url('./Numans.ttf') format('truetype');
+    font-display: swap;
+}
+
+:root {
+    /* -- AVP surfaces (Inventory.vue) ------------------------------------- */
+    --avp-header-bg:    rgba(40, 40, 40, 0.8);    /* $HEADER_BACKGROUND      */
+    --avp-slot-bg:      rgba(50, 50, 50, 0.8);    /* $EMPTY_SLOT_BACKGROUND  */
+    --avp-slot-hover:   rgba(90, 90, 90, 0.8);    /* the scss lighten by 20% */
+    --avp-slot-border:  rgba(200, 200, 200, 0.25);
+    --avp-input-bg:     rgba(20, 20, 20, 0.85);
+
+    /* -- AVP item tile (InventoryItem.vue $ITEM_BACKGROUND) --------------- */
+    --avp-item-grad: linear-gradient(180deg,
+                        rgba(162, 179, 196, 0.2),
+                        rgba(59, 101, 141, 0.2));
+
+    /* -- AVP type --------------------------------------------------------- */
+    --avp-text:      rgb(220, 220, 220);
+    --avp-text-soft: rgb(200, 200, 200);
+    --avp-text-dim:  rgb(155, 155, 155);
+    --avp-broken:    rgb(180, 139, 26);
+
+    /* -- AVP weight bar --------------------------------------------------- */
+    --avp-weight-track: rgba(0, 0, 0, 0.8);
+    --avp-weight-fill:  rgba(135, 206, 235, 0.5);
+
+    /* -- geometry ---------------------------------------------------------
+       5.7vh at a 1080p viewport is ~61px, the cell size AVP draws at its
+       default slot size. --avp-cols 10 matches AVP's xSize of 10.           */
+    --avp-slot: 5.7vh;
+    --avp-cols: 10;
+    --avp-rows: 9;
+    --avp-gap:  2px;
+
+    --avp-fs-name: 0.6vw;   /* item name    */
+    --avp-fs-meta: 0.55vw;  /* count/weight */
+    --avp-fs-head: 1vw;     /* panel title  */
+}
+
+/* =============================================================================
+   PANEL + GRID
+   ========================================================================== */
+
+.app-wrapper,
+.inventory-wrapper p,
+.tooltip-wrapper,
+.context-menu-list {
+    font-family: 'numans', 'Roboto', sans-serif;
+}
+
+/* AVP's header is a solid bar carrying the inventory name. ox puts the label
+   and the weight bar in this same row, so this row becomes that bar. */
+.inventory-grid-header-wrapper {
+    background-color: var(--avp-header-bg);
+    align-items: center;
+    padding: 0.25vw 0.5vw;
+    gap: 0.5vw;
+}
+
+.inventory-grid-header-wrapper p {
+    color: #fff;
+    font-size: var(--avp-fs-head);
+    font-weight: bold;
+    text-indent: 0.25vw;
+}
+
+.inventory-grid-container {
+    grid-template-columns: repeat(var(--avp-cols), var(--avp-slot));
+    grid-auto-rows: var(--avp-slot);
+    gap: var(--avp-gap);
+    height: calc(var(--avp-rows) * (var(--avp-slot) + var(--avp-gap)));
+    padding: 0.1vw;
+    background-color: rgba(0, 0, 0, 0.15);
+}
+
+/* =============================================================================
+   SLOTS -- AVP: flat grey cell, thin light hairline, no rounding
+   ========================================================================== */
+
+.inventory-slot,
+.hotbar-item-slot,
+.item-notification-item-box {
+    background-color: var(--avp-slot-bg);
+    border: 1px solid var(--avp-slot-border);
+    border-radius: 0;
+    background-size: 78%;           /* AVP draws its icon at 80% of the cell */
+    transition: background-color 0.12s ease;
+}
+
+.hotbar-item-slot,
+.item-notification-item-box {
+    width: var(--avp-slot);
+    height: var(--avp-slot);
+}
+
+/* AVP highlights the cell under the cursor with lighten(bg, 20%). */
+.inventory-slot:hover {
+    background-color: var(--avp-slot-hover);
+}
+
+/* =============================================================================
+   ITEM TILE
+   .item-slot-wrapper is rendered by ox only when the slot actually holds an
+   item, so it is the reliable "occupied" hook -- the tint sits over the icon
+   exactly like AVP's .inventory-item does.
+   ========================================================================== */
+
+.item-slot-wrapper {
+    width: 100%;
+    background: var(--avp-item-grad);
+    position: relative;
+}
+
+.inventory-slot:hover .item-slot-wrapper {
+    filter: brightness(120%);       /* AVP .inventory-item:hover */
+}
+
+/* -- count: AVP puts it top-LEFT; ox right-aligns this row ----------------- */
+.item-slot-header-wrapper {
+    justify-content: flex-start !important;
+}
+
+.item-slot-wrapper p,
+.item-slot-header-wrapper p {
+    color: var(--avp-text);
+    font-size: var(--avp-fs-meta);
+    font-family: 'numans', sans-serif;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    padding: 0 0.1vw;
+}
+
+/* ox's slot-index chip is a white pill; AVP has no such chip. Kept, because the
+   hotbar needs its numbers, but flattened so it reads as a corner glyph. */
+.inventory-slot-number {
+    color: var(--avp-text-dim);
+    background-color: transparent;
+    border-radius: 0;
+    height: auto;
+    padding: 0 0.15vw;
+    font-family: 'numans', sans-serif;
+    font-size: var(--avp-fs-meta);
+}
+
+/* -- weight / durability: AVP puts weight top-RIGHT ------------------------ */
+.item-slot-info-wrapper {
+    position: absolute;
+    top: 0;
+    right: 0.1vw;
+    align-self: auto;
+    padding: 0;
+    gap: 0.15vw;
+}
+
+.item-slot-info-wrapper p {
+    color: var(--avp-text-dim);
+    font-size: var(--avp-fs-meta);
+}
+
+/* -- name: AVP floats it over the bottom of the tile, no solid box --------- */
+.inventory-slot-label-box {
+    background-color: transparent;
+    border-top: none;
+    border-radius: 0;
+    position: absolute;
+    bottom: 2%;
+    left: 0;
+    width: 100%;
+}
+
+.inventory-slot-label-text {
+    color: var(--avp-text);
+    text-transform: none;           /* AVP shows the label as authored */
+    font-family: 'numans', sans-serif;
+    font-size: var(--avp-fs-name);
+    font-weight: bold;
+    text-align: center;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+    padding: 0 2px;
+}
+
+.item-slot-currency-wrapper p,
+.item-slot-price-wrapper p {
+    font-family: 'numans', sans-serif;
+    font-size: var(--avp-fs-name);
+    color: var(--avp-text);
+}
+
+/* =============================================================================
+   WEIGHT + DURABILITY BARS
+   The fill is a child div with an inline backgroundColor, so overriding it
+   needs !important -- the one place this file has to shout.
+   ========================================================================== */
+
+.weight-bar {
+    background: var(--avp-weight-track);
+    border: none;
+    border-radius: 0.15vw;
+    height: 0.75vw;
+}
+
+.weight-bar > div {
+    background-color: var(--avp-weight-fill) !important;
+    border-radius: inherit;
+}
+
+.durability-bar {
+    background: var(--avp-weight-track);
+    height: 2px;
+}
+
+.durability-bar > div {
+    background-color: var(--avp-broken) !important;
+}
+
+/* =============================================================================
+   CONTROLS -- ox's right-hand column, AVP's footer inputs
+   ========================================================================== */
+
+.inventory-control .inventory-control-input {
+    background-color: var(--avp-input-bg);
+    color: #fff;
+    border-radius: 0.15vw;
+    font-family: 'numans', sans-serif;
+    font-size: 0.9vw;
+    padding: 0.3vw 0.5vw;
+}
+
+.inventory-control .inventory-control-input::placeholder {
+    color: rgb(120, 120, 120);
+}
+
+.inventory-control .inventory-control-input:focus-within {
+    background-color: rgba(20, 20, 20, 0.95);
+}
+
+.inventory-control .inventory-control-button,
+.useful-controls-button {
+    background-color: var(--avp-header-bg) !important;
+    color: #fff;
+    border: 1px solid var(--avp-slot-border);
+    border-radius: 0.15vw !important;
+    font-family: 'numans', sans-serif;
+    text-transform: none;
+}
+
+.inventory-control .inventory-control-button:hover,
+.useful-controls-button:hover {
+    background-color: rgba(90, 90, 90, 0.85) !important;
+}
+
+/* =============================================================================
+   TOOLTIP / CONTEXT MENU / NOTIFICATIONS
+   ========================================================================== */
+
+.tooltip-wrapper,
+.context-menu-list,
+.useful-controls-dialog {
+    background-color: rgba(40, 40, 40, 0.95);
+    border: 1px solid var(--avp-slot-border);
+    border-radius: 0.15vw;
+    color: var(--avp-text);
+}
+
+.tooltip-header-wrapper p {
+    color: #fff;
+    font-weight: bold;
+}
+
+.tooltip-wrapper p,
+.context-menu-item {
+    color: var(--avp-text-soft);
+    font-family: 'numans', sans-serif;
+}
+
+.context-menu-item:hover {
+    background-color: rgba(90, 90, 90, 0.8);
+}
+
+.item-notification-action-box {
+    background-color: var(--avp-header-bg);
+    border-radius: 0;
+    color: var(--avp-text);
+    font-family: 'numans', sans-serif;
+}
+
+/* =============================================================================
+   DRAG FEEDBACK
+   AVP carries the tinted tile with the cursor rather than a bare icon.
+   ========================================================================== */
+
+.item-drag-preview {
+    width: var(--avp-slot);
+    height: var(--avp-slot);
+    background-size: 78%;
+    background-color: var(--avp-slot-bg);
+    border: 1px solid var(--avp-slot-border);
+    box-shadow: 0 0.2vw 0.6vw rgba(0, 0, 0, 0.6);
+}
+
+/* =============================================================================
+   KNOWN LIMIT -- read before filing this as a bug
+
+   ox_inventory is a SLOT inventory: every slot is one equal-sized cell and an
+   item occupies exactly one. AVP is a GRID inventory: items carry width/height
+   and sit at an x/y, so a rifle spans 5x2 cells.
+
+   That difference is data, not styling. ox items have no width, height, x or y
+   anywhere in the item definition or the slot payload, and inventing them would
+   mean changing ox_inventory's backend -- explicitly out of scope here, and the
+   thing that would actually break shops, containers and every export.
+
+   So this skin reproduces AVP's visual language -- surfaces, hairlines, item
+   tint, label placement, typography, weight bar, hover and drag feedback -- on
+   a uniform grid. Multi-cell items are the one part of the AVP look that a
+   frontend-only change cannot deliver.
+   ========================================================================== */

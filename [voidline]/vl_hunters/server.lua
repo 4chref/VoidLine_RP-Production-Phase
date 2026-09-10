@@ -1,0 +1,268 @@
+--[[
+    vl_hunters -- server
+
+    Owns the hunter population. Clients find spawn spots and drive AI; the
+    server decides whether a spawn happens and creates the entity, so there is
+    exactly one hunter per spawn rather than one per player.
+
+    WHY THE SERVER CREATES THE PED. A ped made client-side with isNetwork=false
+    exists only on that machine -- which is why nobody could see anybody else's
+    hunters. Creating it here makes one networked entity every player sees, and
+    puts the population cap somewhere a client cannot lie about.
+]]
+
+if not VLHunters.enabled then return end
+
+--- entity -> { packId = string, wreck = number|nil }
+local hunters = {}
+
+--- vehicle netId -> hunter entity, so one wreck never gets two guards
+local wreckGuards = {}
+
+local function dbg(msg, ...)
+    if VLHunters.debug then print(('[vl_hunters] ' .. msg):format(...)) end
+end
+
+local packById = {}
+for _, pack in ipairs(VLHunters.packs) do packById[pack.id] = pack end
+
+CreateThread(function()
+    Wait(1000)
+    local n = 0
+    for _ in pairs(packById) do n = n + 1 end
+    print(('[vl_hunters] server ready -- %d pack(s) registered, awaiting spawn requests'):format(n))
+end)
+
+local function countPack(packId)
+    local n = 0
+    for _, h in pairs(hunters) do
+        if h.packId == packId then n = n + 1 end
+    end
+    return n
+end
+
+local function countWreckGuards()
+    local n = 0
+    for _ in pairs(wreckGuards) do n = n + 1 end
+    return n
+end
+
+---@return number|nil entity
+local function createHunter(pack, coords, wreckNetId)
+    local model = joaat(pack.ped.model)
+
+    -- Server-side CreatePed makes a NETWORKED ped: isNetwork = true. The model
+    -- is streamed by each client that comes near it; the server does not load
+    -- models itself.
+    local ped = CreatePed(4, model, coords.x, coords.y, coords.z, math.random(0, 359) + 0.0, true, true)
+
+    if not ped or ped == 0 or not DoesEntityExist(ped) then
+        dbg('[%s] CreatePed failed at %.0f, %.0f', pack.id, coords.x, coords.y)
+        return nil
+    end
+
+    -- FROZEN AT BIRTH. The controlling client unfreezes it once collision has
+    -- streamed in and it has been dropped onto real ground (see setupHunter).
+    --
+    -- Done here rather than only client-side because there is a gap of up to a
+    -- tick between this entity existing and any client running setup on it --
+    -- and that gap is long enough to fall through unloaded map.
+    FreezeEntityPosition(ped, true)
+
+    -- The state bag is how clients recognise a hunter and know which pack's
+    -- behaviour to run. Replicated, so every client sees it -- including ones
+    -- that stream the ped in long after it was made.
+    local st = Entity(ped).state
+    st:set('vlHunter', pack.id, true)
+    if wreckNetId then st:set('vlHunterWreck', wreckNetId, true) end
+
+    hunters[ped] = { packId = pack.id, wreck = wreckNetId }
+    return ped
+end
+
+-- =============================================================================
+-- AMBIENT POPULATION
+-- =============================================================================
+
+-- A client found a spot and is asking for a hunter there. The server decides.
+--- Network events do not always deliver a vector3 as a vector3 -- depending on
+--- build and serialiser it can arrive as a plain {x,y,z} table. The old strict
+--- `type(coords) ~= 'vector3'` check therefore rejected every request SILENTLY,
+--- which looks exactly like "nothing is spawning".
+local function toVec3(v)
+    if type(v) == 'vector3' then return v end
+    if type(v) == 'table' then
+        local x, y, z = v.x or v[1], v.y or v[2], v.z or v[3]
+        if type(x) == 'number' and type(y) == 'number' and type(z) == 'number' then
+            return vector3(x + 0.0, y + 0.0, z + 0.0)
+        end
+    end
+    return nil
+end
+
+RegisterNetEvent('vl_hunters:server:requestSpawn', function(packId, coords)
+    local src = source
+
+    if type(packId) ~= 'string' then
+        dbg('spawn request from %s rejected: packId was %s', src, type(packId))
+        return
+    end
+
+    coords = toVec3(coords)
+    if not coords then
+        dbg('spawn request from %s rejected: coords not usable', src)
+        return
+    end
+
+    local pack = packById[packId]
+    if not pack or pack.enabled == false then
+        dbg('spawn request from %s rejected: pack "%s" unknown or disabled', src, packId)
+        return
+    end
+
+    -- Never trust a client's idea of where it is: check the spot against the
+    -- player's ACTUAL position, or a modified client could post hunters
+    -- anywhere on the map.
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return end
+
+    local dist = #(GetEntityCoords(ped) - coords)
+    if dist > pack.spawn.maxDistance + 40.0 then
+        dbg('rejected spawn request from %s: %.0f m away', src, dist)
+        return
+    end
+
+    local live = countPack(packId)
+    if live >= pack.spawn.max then
+        dbg('spawn request from %s rejected: %s already at cap (%d/%d)', src, packId, live, pack.spawn.max)
+        return
+    end
+
+    local ped = createHunter(pack, coords)
+    if ped then
+        dbg('[%s] spawned %d at %.0f, %.0f for player %s (%d live)',
+            packId, ped, coords.x, coords.y, src, live + 1)
+    end
+end)
+
+-- =============================================================================
+-- WRECK GUARDS
+-- =============================================================================
+
+RegisterNetEvent('vl_hunters:server:reportWreck', function(vehNetId, coords)
+    local src = source
+    local cfg = VLHunters.wreck
+    if not cfg or not cfg.enabled then return end
+    if type(vehNetId) ~= 'number' then return end
+    coords = toVec3(coords)
+    if not coords then return end
+
+    -- Already guarded. This is the whole point of routing wrecks through the
+    -- server: every client near the same wreck reports it, and only the first
+    -- report creates anything.
+    if wreckGuards[vehNetId] then return end
+
+    if countWreckGuards() >= (cfg.max or 20) then return end
+
+    local pack = packById[cfg.packId]
+    if not pack then
+        dbg('wreck: pack "%s" does not exist', tostring(cfg.packId))
+        return
+    end
+
+    -- Verify the vehicle really exists and really is wrecked, server-side.
+    local veh = NetworkGetEntityFromNetworkId(vehNetId)
+    if not veh or veh == 0 or not DoesEntityExist(veh) then return end
+
+    local player = GetPlayerPed(src)
+    if not player or player == 0 then return end
+    if #(GetEntityCoords(player) - coords) > (cfg.searchRadius or 150.0) + 40.0 then return end
+
+    local a = math.random() * math.pi * 2.0
+    local off = cfg.offset or 4.0
+    local spot = vector3(coords.x + math.cos(a) * off, coords.y + math.sin(a) * off, coords.z)
+
+    local hunter = createHunter(pack, spot, vehNetId)
+    if hunter then
+        wreckGuards[vehNetId] = hunter
+        dbg('wreck %d guarded by hunter %d (%d guards)', vehNetId, hunter, countWreckGuards())
+    end
+end)
+
+-- =============================================================================
+-- FIRST HIT
+-- =============================================================================
+
+-- A player reports that this hunter damaged them. Flagged on the entity so the
+-- rule survives control moving between clients and applies for everybody --
+-- a hunter that has tagged one player is harmless to all of them afterwards.
+RegisterNetEvent('vl_hunters:server:markSpent', function(netId)
+    if type(netId) ~= 'number' then return end
+
+    local ped = NetworkGetEntityFromNetworkId(netId)
+    if not ped or ped == 0 or not DoesEntityExist(ped) then return end
+
+    -- Only our own hunters, so this cannot be used to tamper with other peds.
+    if not hunters[ped] then return end
+
+    local st = Entity(ped).state
+    if st.vlHunterSpent then return end
+
+    st:set('vlHunterSpent', true, true)
+    dbg('hunter %d has drawn blood -- accuracy dropped', ped)
+end)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+
+local function removeHunter(ped)
+    local h = hunters[ped]
+    if h and h.wreck then wreckGuards[h.wreck] = nil end
+    hunters[ped] = nil
+    if DoesEntityExist(ped) then DeleteEntity(ped) end
+end
+
+CreateThread(function()
+    while true do
+        Wait(5000)
+
+        local players = GetPlayers()
+
+        -- Cache player positions once per sweep rather than per hunter.
+        local positions = {}
+        for i = 1, #players do
+            local p = GetPlayerPed(players[i])
+            if p and p ~= 0 then positions[#positions + 1] = GetEntityCoords(p) end
+        end
+
+        for ped, h in pairs(hunters) do
+            if not DoesEntityExist(ped) then
+                removeHunter(ped)
+            else
+                local pack = packById[h.packId]
+                local limit = h.wreck and (VLHunters.wreck.despawnDistance or 300.0)
+                    or (pack and pack.spawn.despawnDistance or 260.0)
+
+                local coords = GetEntityCoords(ped)
+                local near = false
+
+                for i = 1, #positions do
+                    if #(positions[i] - coords) <= limit then near = true break end
+                end
+
+                -- Nobody left to see it. Removing it here rather than leaving it
+                -- to the engine is what stops abandoned hunters accumulating --
+                -- a networked ped is not culled the way a local one is.
+                if not near then removeHunter(ped) end
+            end
+        end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    for ped in pairs(hunters) do
+        if DoesEntityExist(ped) then DeleteEntity(ped) end
+    end
+end)

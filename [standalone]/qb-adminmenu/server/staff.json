@@ -1,0 +1,45 @@
+{
+    "god": [
+         {
+            "name": "4chraf",
+            "identifiers": ["fivem:926158", "discord:702321805976666173"]
+        },
+        {
+            "name": "AstroNyx",
+            "identifiers": ["license2:a2b61403caf69756c5ffb5ba80aafd61a8e4d4ed", "fivem:14889835", "discord:671499819495456768"]
+        },
+        {
+            "name": "spider",
+            "identifiers": ["license2:918539ef99d49b5508154cdc8fcd8422db1c3488", "fivem:1278483", "discord:762774870005907486"]
+        }
+    ],
+    "admin": [
+
+        {
+            "name": "SNACK",
+            "identifiers": ["license2:bec199e583f27962a893785f96301f4377db2f45"]
+        },
+        {
+            "name": "YASSUO",
+            "identifiers": ["license2:a0ec246df5477c7b132365c9028d13ae86b2d628"]
+        },
+        {
+            "name": "Fedi",
+            "identifiers": ["license2:52eb3fba897f80e1eb00aae2c5d145e4f6a0b74b"]
+        },
+        {
+            "name": "LaVaWoLf",
+            "identifiers": ["license2:765fbb513b936dfa65326edd41866361a5a8f7a7"]
+        },
+        {
+            "name": "teon",
+            "identifiers": ["license2:17ad57cd03b023edbc468a5e481a40b0761f9e7e"]
+        }
+    ],
+    "moderator": [
+        {
+            "name": "s1dj0",
+            "identifiers": ["license2:180b6d5736f0e96f6ea6aebe78653dbbff0b1ed3", "fivem:13721954", "discord:589193294785806442"]
+        }
+    ]
+}

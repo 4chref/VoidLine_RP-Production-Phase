@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>vl_identity</title>
+<!-- Two faces, two screens:
+       Bebas Neue  af-expeditions' display face, used by the ARRIVAL splash
+       Inter       af-camping's body face, used by the INTAKE panel
+     af-camping's title face ("Agency FB" / "Arial Narrow") is Windows-resident
+     exactly as that script declares it, so it needs no fetch. Loaded from
+     Google Fonts the same way af-basebuilding loads Teko in NUI, which is
+     already proven to work on this server; both have real fallbacks in
+     style.css if the fetch ever fails. -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ======================================================================
+     INTAKE -- sex + height, shown while the player is still invisible
+     ====================================================================== -->
+<div class="screen" id="intake" hidden>
+    <div class="backdrop"></div>
+
+    <div class="panel">
+        <span class="bracket tl"></span><span class="bracket tr"></span>
+        <span class="bracket bl"></span><span class="bracket br"></span>
+
+        <div class="eyebrow" id="intakeEyebrow">VOIDLINE :: SURFACE REGISTRATION</div>
+        <h1 class="heading" id="intakeHeading">Identify yourself</h1>
+        <p class="subtitle" id="intakeSubtitle">Bunker 07-A intake. What is recorded here cannot be changed.</p>
+
+        <div class="rule"></div>
+
+        <section class="field">
+            <div class="field-label"><span class="idx">01</span> Sex</div>
+            <div class="choices" id="sexChoices">
+                <button class="choice" type="button" data-value="male">
+                    <span class="choice-mark"></span>
+                    <span class="choice-text">Male</span>
+                </button>
+                <button class="choice" type="button" data-value="female">
+                    <span class="choice-mark"></span>
+                    <span class="choice-text">Female</span>
+                </button>
+            </div>
+        </section>
+
+        <section class="field">
+            <div class="field-label">
+                <span class="idx">02</span> Height
+                <span class="readout"><b id="heightVal">175</b><i>cm</i></span>
+            </div>
+            <div class="slider-wrap">
+                <input type="range" id="heightRange" min="140" max="210" value="175" step="1">
+                <div class="slider-track"><div class="slider-fill" id="heightFill"></div></div>
+            </div>
+            <div class="slider-ends"><span id="heightMinLbl">140</span><span id="heightMaxLbl">210</span></div>
+        </section>
+
+        <button class="submit" id="intakeSubmit" type="button" disabled>
+            <span>Confirm intake</span>
+        </button>
+        <div class="hint" id="intakeHint">Select a sex to continue</div>
+    </div>
+
+    <div class="grain"></div>
+</div>
+
+<!-- ======================================================================
+     ARRIVAL -- shown once, after the character spawns into the world.
+
+     Deliberately built on af-expeditions' zone-discovery treatment rather
+     than as its own thing: a dark gradient pulled in from the right, the
+     copy stacked against that edge, and the discovery sting underneath. The
+     player meets that exact language every time they walk into an
+     expedition, so using it here says "you have arrived somewhere" in a
+     grammar they will already be fluent in by their second hour.
+
+     No focus and no buttons -- it plays over the world and dismisses itself.
+     ====================================================================== -->
+<div class="arrival" id="arrival" hidden>
+    <div class="arrival-overlay"></div>
+
+    <div class="arrival-panel">
+        <div class="arrival-rule top">
+            <span class="rule-line fade-left"></span>
+            <span class="rule-diamond"></span>
+            <span class="rule-line fade-right"></span>
+        </div>
+
+        <div class="arrival-eyebrow" id="arrEyebrow">SURFACE CONTACT</div>
+        <h1 class="arrival-title" id="arrTitle">LOS SANTOS</h1>
+        <p class="arrival-desc" id="arrDesc">You are on your own now.</p>
+
+        <div class="arrival-rule bottom">
+            <span class="rule-line fade-left"></span>
+            <span class="rule-diamond"></span>
+            <span class="rule-line fade-right"></span>
+        </div>
+
+        <ul class="arrival-lines" id="arrLines"></ul>
+    </div>
+</div>
+
+<!-- ======================================================================
+     ID CARD -- passive, no focus
+     ====================================================================== -->
+<div id="card">
+    <span class="bracket tl"></span><span class="bracket br"></span>
+    <div class="card-head">Identity card</div>
+    <div class="card-photo empty" id="photo"></div>
+    <div class="card-row"><span class="k">ID</span><span class="v" id="vid">---</span></div>
+    <div class="card-row"><span class="k">Sex</span><span class="v" id="vsex">--</span></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

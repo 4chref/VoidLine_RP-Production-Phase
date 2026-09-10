@@ -1,0 +1,10 @@
+/\[af\]/
+/\[assets\]/
+/out/
+
+# dependency/build artifacts - should be built on the VPS, not synced via git
+**/node_modules/
+**/dist/
+
+# local backup snapshots, not source
+/\[standalone\]/fivem_conflicttool/data/backups/
